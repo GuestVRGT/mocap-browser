@@ -3,76 +3,254 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Permission Test</title>
+  <title>Monke</title>
   <style>
     body {
       margin: 0; padding: 20px; background: #111; color: white;
       font-family: -apple-system, BlinkMacSystemFont, sans-serif;
       text-align: center;
     }
-    h1 { font-size: 22px; margin-bottom: 8px; }
-    p { font-size: 14px; opacity: 0.8; margin-bottom: 24px; }
+    h1 { font-size: 22px; margin-bottom: 6px; }
+    p { font-size: 14px; opacity: 0.8; margin-bottom: 20px; }
     button {
-      display: block; width: 90%; max-width: 320px; margin: 14px auto;
+      display: block; width: 90%; max-width: 300px; margin: 12px auto;
       padding: 16px; font-size: 17px; border: none; border-radius: 12px;
       background: #4cbf56; color: white; font-weight: 600;
     }
+    button:disabled { background: #444; }
     #log {
-      margin-top: 28px; text-align: left; background: #222; padding: 14px;
+      margin-top: 24px; text-align: left; background: #222; padding: 14px;
       border-radius: 10px; font-size: 13px; white-space: pre-wrap;
-      max-height: 50vh; overflow-y: auto;
+      max-height: 30vh; overflow-y: auto;
+    }
+    #game { display: none; }
+    #info {
+      position: absolute; top: 10px; left: 10px; z-index: 10;
+      color: white; background: rgba(0,0,0,0.55); padding: 9px 12px;
+      border-radius: 10px; font-size: 12px; line-height: 1.4; max-width: 220px;
+    }
+    #video {
+      position: absolute; bottom: 10px; right: 10px;
+      width: 120px; height: 90px; border: 2px solid #fff;
+      border-radius: 8px; z-index: 5; transform: scaleX(-1); object-fit: cover;
     }
   </style>
 </head>
 <body>
-  <h1>Permission Test</h1>
-  <p>Tap button 1, then button 2.<br>Copy the black text after each tap.</p>
+  <div id="perm">
+    <h1>Monke</h1>
+    <p>Tap the two buttons one after another<br>(same style as the working test)</p>
+    <button id="orientBtn">1. Allow Motion</button>
+    <button id="camBtn" disabled>2. Allow Camera</button>
+    <div id="log">Waiting…</div>
+  </div>
 
-  <button id="orientBtn">1. Request Motion</button>
-  <button id="camBtn">2. Request Camera</button>
-
-  <div id="log">Waiting for you to tap a button…</div>
+  <div id="game">
+    <div id="info">
+      <b>Controls</b><br>
+      • Tilt = look<br>
+      • Hands = move monke<br>
+      • Touch drag = look backup<br>
+      • 1 / 3 = 1st / 3rd person
+    </div>
+    <video id="video" playsinline muted></video>
+  </div>
 
   <script>
     const logEl = document.getElementById('log');
     function log(msg) {
       logEl.textContent += '\n' + msg;
       logEl.scrollTop = logEl.scrollHeight;
-      console.log(msg);
     }
 
+    let motionGranted = false;
+    let cameraStream = null;
+
+    // Button 1 – Motion (exactly like the working test)
     document.getElementById('orientBtn').addEventListener('click', async () => {
-      log('--- Motion button tapped ---');
+      log('--- Motion tapped ---');
       try {
-        if (typeof DeviceOrientationEvent === 'undefined') {
-          log('DeviceOrientationEvent is not supported');
-          return;
-        }
-        if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-          log('Calling DeviceOrientationEvent.requestPermission()…');
+        if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+          log('Calling requestPermission…');
           const result = await DeviceOrientationEvent.requestPermission();
-          log('Permission result: ' + result);
+          log('Result: ' + result);
+          if (result === 'granted') {
+            motionGranted = true;
+            window._orientGranted = true;
+          }
         } else {
-          log('No requestPermission method (not iOS Safari?).');
-          window.addEventListener('deviceorientation', () => {});
-          log('Listener added anyway.');
+          log('No requestPermission needed');
+          motionGranted = true;
+          window._orientGranted = true;
         }
+        document.getElementById('orientBtn').disabled = true;
+        document.getElementById('camBtn').disabled = false;
+        log('Now tap button 2');
+      } catch (err) {
+        log('ERROR: ' + err.name + ' – ' + err.message);
+        // still unlock camera button
+        document.getElementById('orientBtn').disabled = true;
+        document.getElementById('camBtn').disabled = false;
+      }
+    });
+
+    // Button 2 – Camera (exactly like the working test)
+    document.getElementById('camBtn').addEventListener('click', async () => {
+      log('--- Camera tapped ---');
+      try {
+        log('Calling getUserMedia…');
+        cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        log('Camera granted!');
+        // Now load the game
+        startGame(cameraStream);
       } catch (err) {
         log('ERROR: ' + err.name + ' – ' + err.message);
       }
     });
 
-    document.getElementById('camBtn').addEventListener('click', async () => {
-      log('--- Camera button tapped ---');
-      try {
-        log('Calling getUserMedia…');
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-        log('Camera permission granted!');
-        stream.getTracks().forEach(t => t.stop());
-      } catch (err) {
-        log('ERROR: ' + err.name + ' – ' + err.message);
+    function startGame(stream) {
+      document.getElementById('perm').style.display = 'none';
+      document.getElementById('game').style.display = 'block';
+
+      // Load Three.js + MediaPipe only after permissions
+      const s1 = document.createElement('script');
+      s1.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
+      s1.onload = () => {
+        const s2 = document.createElement('script');
+        s2.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js';
+        s2.onload = () => {
+          const s3 = document.createElement('script');
+          s3.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js';
+          s3.onload = () => initGame(stream);
+          document.head.appendChild(s3);
+        };
+        document.head.appendChild(s2);
+      };
+      document.head.appendChild(s1);
+    }
+
+    function initGame(stream) {
+      const videoElement = document.getElementById('video');
+      videoElement.srcObject = stream;
+      videoElement.play();
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x87CEEB);
+      const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 1000);
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(innerWidth, innerHeight);
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+      document.body.appendChild(renderer.domElement);
+
+      scene.add(new THREE.AmbientLight(0x555555));
+      const dir = new THREE.DirectionalLight(0xffffff, 1.1);
+      dir.position.set(5, 12, 8);
+      scene.add(dir);
+
+      const ground = new THREE.Mesh(
+        new THREE.PlaneGeometry(50, 50),
+        new THREE.MeshLambertMaterial({ color: 0x228B22 })
+      );
+      ground.rotation.x = -Math.PI / 2;
+      scene.add(ground);
+
+      const bodyMat = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+      const body = new THREE.Mesh(new THREE.SphereGeometry(1.1, 16, 16), bodyMat);
+      body.position.y = 1.5;
+      scene.add(body);
+
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.65, 12, 12), new THREE.MeshLambertMaterial({ color: 0xA0522D }));
+      head.position.set(0, 2.45, 0);
+      scene.add(head);
+
+      const armGeo = new THREE.CylinderGeometry(0.18, 0.18, 1.4);
+      const leftArm = new THREE.Mesh(armGeo, bodyMat);
+      leftArm.position.set(-1.25, 1.7, 0);
+      scene.add(leftArm);
+      const rightArm = new THREE.Mesh(armGeo, bodyMat);
+      rightArm.position.set(1.25, 1.7, 0);
+      scene.add(rightArm);
+
+      let yaw = 0, pitch = 0.12, firstPerson = false;
+      let baseAlpha = null, baseBeta = null;
+
+      if (window._orientGranted) {
+        window.addEventListener('deviceorientation', e => {
+          if (e.alpha == null) return;
+          if (baseAlpha === null) { baseAlpha = e.alpha; baseBeta = e.beta; }
+          yaw = -(e.alpha - baseAlpha) * Math.PI / 180;
+          pitch = Math.max(-1.1, Math.min(1.1, -(e.beta - baseBeta) * Math.PI / 180 * 0.6));
+        }, true);
       }
-    });
+
+      // Touch backup
+      let dragging = false, lx = 0, ly = 0;
+      window.addEventListener('touchstart', e => { e.preventDefault(); dragging = true; lx = e.touches[0].clientX; ly = e.touches[0].clientY; }, {passive:false});
+      window.addEventListener('touchmove', e => {
+        e.preventDefault();
+        if (!dragging) return;
+        yaw -= (e.touches[0].clientX - lx) * 0.004;
+        pitch = Math.max(-1.1, Math.min(1.1, pitch - (e.touches[0].clientY - ly) * 0.004));
+        lx = e.touches[0].clientX; ly = e.touches[0].clientY;
+      }, {passive:false});
+      window.addEventListener('touchend', () => dragging = false);
+
+      window.addEventListener('keydown', e => {
+        if (e.key === '1') firstPerson = true;
+        if (e.key === '3') firstPerson = false;
+      });
+
+      let targetX = 0, targetZ = 0;
+
+      const hands = new Hands({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
+      hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.55, minTrackingConfidence: 0.5 });
+      hands.onResults(results => {
+        if (!results.multiHandLandmarks || !results.multiHandLandmarks.length) return;
+        let ax = 0, ay = 0, n = 0;
+        for (const lm of results.multiHandLandmarks) {
+          ax += (1 - lm[0].x); ay += lm[0].y; n++;
+        }
+        ax /= n; ay /= n;
+        targetX = (ax - 0.5) * 12;
+        targetZ = (ay - 0.5) * 10;
+      });
+
+      const cam = new Camera(videoElement, {
+        onFrame: async () => { await hands.send({ image: videoElement }); },
+        width: 640, height: 480
+      });
+      cam.start();
+
+      function animate() {
+        requestAnimationFrame(animate);
+        body.position.x += (targetX - body.position.x) * 0.13;
+        body.position.z += (targetZ - body.position.z) * 0.13;
+        head.position.set(body.position.x, body.position.y + 0.95, body.position.z);
+        leftArm.position.set(body.position.x - 1.25, body.position.y + 0.25, body.position.z);
+        rightArm.position.set(body.position.x + 1.25, body.position.y + 0.25, body.position.z);
+
+        if (firstPerson) {
+          camera.position.set(body.position.x, body.position.y + 1.5, body.position.z);
+          camera.rotation.order = 'YXZ';
+          camera.rotation.y = yaw;
+          camera.rotation.x = pitch;
+        } else {
+          const d = 7.2;
+          camera.position.x = body.position.x + Math.sin(yaw) * d * Math.cos(pitch);
+          camera.position.z = body.position.z + Math.cos(yaw) * d * Math.cos(pitch);
+          camera.position.y = body.position.y + 2.6 + Math.sin(pitch) * 2.2;
+          camera.lookAt(body.position.x, body.position.y + 1.2, body.position.z);
+        }
+        renderer.render(scene, camera);
+      }
+      animate();
+
+      window.addEventListener('resize', () => {
+        camera.aspect = innerWidth / innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(innerWidth, innerHeight);
+      });
+    }
   </script>
 </body>
 </html>
