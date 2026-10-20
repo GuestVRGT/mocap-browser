@@ -6,23 +6,26 @@ Browser body-tracking tool (MonkeMocap-inspired).
 - Full-body MediaPipe Pose tracking
 - Live green stick-figure preview
 - Record / Stop
-- Three exports:
+- Exports:
   1. **Body JSON** – clean pose landmarks
   2. **Nonames JSON** – includes `cameraPoseList`
-  3. **GLTF (4 cubes)** – animated GLTF with cubes named:
+  3. **GLTF** with:
      - `torso`
      - `head`
-     - `hand.L`
-     - `hand.R`
+     - **4 arm cubes**:
+       - `upper_arm.L`
+       - `forearm.L`
+       - `upper_arm.R`
+       - `forearm.R`
 
-These names match the main parts of common Gorilla Tag IK rigs so you can easily parent or replace them later.
+These names match common Gorilla Tag IK rig bones so you can parent them easily later.
 
 ## How to use
 1. Open the page
 2. Allow camera
 3. Stand so full body is visible
 4. Record → Stop
-5. Click **GLTF (4 cubes)**
+5. Click **GLTF (arms+body)**
 
 ## Live demo
 https://guestvrgt.github.io/mocap-browser/

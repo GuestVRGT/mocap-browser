@@ -15,7 +15,7 @@
       position: absolute; top: 12px; left: 12px; z-index: 20;
       background: rgba(13,17,23,0.9); padding: 14px 16px;
       border-radius: 12px; border: 1px solid #30363d;
-      max-width: 340px; font-size: 13px; line-height: 1.45;
+      max-width: 360px; font-size: 13px; line-height: 1.45;
     }
     #ui h1 { margin: 0 0 6px; font-size: 18px; color: #7ee787; }
     #ui p { margin: 0 0 10px; opacity: 0.85; }
@@ -50,7 +50,8 @@
     <p>Body tracking + exports<br>
     • Body JSON<br>
     • Nonames JSON<br>
-    • <b>GLTF (4 cubes)</b> named <code>torso</code>, <code>head</code>, <code>hand.L</code>, <code>hand.R</code></p>
+    • <b>GLTF</b> with <code>torso</code>, <code>head</code> + <b>4 arm cubes</b>:<br>
+      <code>upper_arm.L</code>, <code>forearm.L</code>, <code>upper_arm.R</code>, <code>forearm.R</code></p>
     <div class="btn-row">
       <button id="recordBtn">● Record</button>
       <button id="stopBtn" disabled>Stop</button>
@@ -58,7 +59,7 @@
     <div class="btn-row">
       <button id="downloadBody" disabled>Body JSON</button>
       <button id="downloadNonames" disabled>Nonames JSON</button>
-      <button id="downloadGltf" disabled>GLTF (4 cubes)</button>
+      <button id="downloadGltf" disabled>GLTF (arms+body)</button>
     </div>
     <div id="status">Waiting for camera…</div>
   </div>
@@ -190,10 +191,10 @@
       statusEl.textContent = 'Nonames JSON downloaded.';
     });
 
-    // GLTF with 4 cubes named after the main gorilla bones
+    // GLTF with torso + head + 4 arm cubes
     downloadGltf.addEventListener('click', () => {
       if (recordedFrames.length === 0) return;
-      statusEl.textContent = 'Building GLTF (torso + head + hand.L + hand.R)…';
+      statusEl.textContent = 'Building GLTF (torso + head + 4 arm cubes)…';
 
       const exportScene = new THREE.Scene();
 
@@ -201,7 +202,7 @@
       const headMat  = new THREE.MeshStandardMaterial({ color: 0xA0522D });
       const armMat   = new THREE.MeshStandardMaterial({ color: 0xCD853F });
 
-      // Cubes named exactly like the main parts of the gorilla rig
+      // Body
       const torso = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.85, 0.35), torsoMat);
       torso.name = 'torso';
       exportScene.add(torso);
@@ -210,13 +211,22 @@
       head.name = 'head';
       exportScene.add(head);
 
-      const leftHand = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 0.22), armMat);
-      leftHand.name = 'hand.L';
-      exportScene.add(leftHand);
+      // 4 arm cubes
+      const upperArmL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.45, 0.18), armMat);
+      upperArmL.name = 'upper_arm.L';
+      exportScene.add(upperArmL);
 
-      const rightHand = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 0.22), armMat);
-      rightHand.name = 'hand.R';
-      exportScene.add(rightHand);
+      const forearmL = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.40, 0.16), armMat);
+      forearmL.name = 'forearm.L';
+      exportScene.add(forearmL);
+
+      const upperArmR = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.45, 0.18), armMat);
+      upperArmR.name = 'upper_arm.R';
+      exportScene.add(upperArmR);
+
+      const forearmR = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.40, 0.16), armMat);
+      forearmR.name = 'forearm.R';
+      exportScene.add(forearmR);
 
       function lmToPos(lm) {
         return new THREE.Vector3(
@@ -238,7 +248,7 @@
         return new THREE.VectorKeyframeTrack(name + '.position', times, values);
       }
 
-      // torso = average of left + right shoulder (11 + 12)
+      // torso = average of shoulders (11 + 12)
       const torsoTrack = makePosTrack('torso', (lms) => {
         const l = lmToPos(lms[11] || {x:0.45,y:0.45,z:0});
         const r = lmToPos(lms[12] || {x:0.55,y:0.45,z:0});
@@ -248,14 +258,38 @@
       // head = nose (0)
       const headTrack = makePosTrack('head', (lms) => lmToPos(lms[0] || {x:0.5,y:0.35,z:0}));
 
-      // hand.L = left wrist (15)
-      const leftHandTrack = makePosTrack('hand.L', (lms) => lmToPos(lms[15] || {x:0.3,y:0.7,z:0}));
+      // upper_arm.L = midpoint of left shoulder (11) and left elbow (13)
+      const upperArmLTrack = makePosTrack('upper_arm.L', (lms) => {
+        const s = lmToPos(lms[11] || {x:0.4,y:0.45,z:0});
+        const e = lmToPos(lms[13] || {x:0.35,y:0.55,z:0});
+        return new THREE.Vector3().addVectors(s, e).multiplyScalar(0.5);
+      });
 
-      // hand.R = right wrist (16)
-      const rightHandTrack = makePosTrack('hand.R', (lms) => lmToPos(lms[16] || {x:0.7,y:0.7,z:0}));
+      // forearm.L = midpoint of left elbow (13) and left wrist (15)
+      const forearmLTrack = makePosTrack('forearm.L', (lms) => {
+        const e = lmToPos(lms[13] || {x:0.35,y:0.55,z:0});
+        const w = lmToPos(lms[15] || {x:0.3,y:0.7,z:0});
+        return new THREE.Vector3().addVectors(e, w).multiplyScalar(0.5);
+      });
 
-      const clip = new THREE.AnimationClip('MonkeCubes', duration, [
-        torsoTrack, headTrack, leftHandTrack, rightHandTrack
+      // upper_arm.R = midpoint of right shoulder (12) and right elbow (14)
+      const upperArmRTrack = makePosTrack('upper_arm.R', (lms) => {
+        const s = lmToPos(lms[12] || {x:0.6,y:0.45,z:0});
+        const e = lmToPos(lms[14] || {x:0.65,y:0.55,z:0});
+        return new THREE.Vector3().addVectors(s, e).multiplyScalar(0.5);
+      });
+
+      // forearm.R = midpoint of right elbow (14) and right wrist (16)
+      const forearmRTrack = makePosTrack('forearm.R', (lms) => {
+        const e = lmToPos(lms[14] || {x:0.65,y:0.55,z:0});
+        const w = lmToPos(lms[16] || {x:0.7,y:0.7,z:0});
+        return new THREE.Vector3().addVectors(e, w).multiplyScalar(0.5);
+      });
+
+      const clip = new THREE.AnimationClip('MonkeArms', duration, [
+        torsoTrack, headTrack,
+        upperArmLTrack, forearmLTrack,
+        upperArmRTrack, forearmRTrack
       ]);
 
       const exporter = new THREE.GLTFExporter();
@@ -266,10 +300,10 @@
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
-          a.download = `monke-torso-head-hands-${Date.now()}.gltf`;
+          a.download = `monke-arms-body-${Date.now()}.gltf`;
           a.click();
           URL.revokeObjectURL(url);
-          statusEl.textContent = 'GLTF downloaded! Cubes named: torso, head, hand.L, hand.R';
+          statusEl.textContent = 'GLTF downloaded! Includes torso, head + 4 arm cubes (upper_arm.L/R, forearm.L/R)';
         },
         { animations: [clip], binary: false }
       );
@@ -358,7 +392,7 @@
           width: 640, height: 480
         });
         cam.start();
-        statusEl.textContent = 'Camera ready! Record then export GLTF (torso / head / hand.L / hand.R).';
+        statusEl.textContent = 'Camera ready! Record then export GLTF (torso + head + 4 arm cubes).';
       } catch (err) {
         statusEl.textContent = 'Camera error: ' + err.message;
       }
