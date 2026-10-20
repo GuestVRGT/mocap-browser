@@ -13,9 +13,9 @@
     }
     #ui {
       position: absolute; top: 12px; left: 12px; z-index: 20;
-      background: rgba(13,17,23,0.92); padding: 14px 16px;
+      background: rgba(13,17,23,0.93); padding: 14px 16px;
       border-radius: 12px; border: 1px solid #30363d;
-      max-width: 370px; font-size: 13px; line-height: 1.45;
+      max-width: 380px; font-size: 13px; line-height: 1.45;
     }
     #ui h1 { margin: 0 0 6px; font-size: 18px; color: #7ee787; }
     #ui p { margin: 0 0 10px; opacity: 0.85; }
@@ -47,8 +47,9 @@
 <body>
   <div id="ui">
     <h1>Browser MonkeMocap 🐒</h1>
-    <p>Live cubes + hands + better torso placement<br>
-    Ground clamp still active (arms never go below 0)</p>
+    <p>Starts in default pose<br>
+    Arms rotate freely • Torso left/right only • Head up/down only<br>
+    + ground clamp</p>
     <div class="btn-row">
       <button id="recordBtn">● Record</button>
       <button id="stopBtn" disabled>Stop</button>
@@ -72,16 +73,16 @@
   <script>
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0d1117);
-    const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 100);
-    camera.position.set(0, 2.4, 5.8);
+    const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 100);
+    camera.position.set(0, 2.5, 6.2);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(innerWidth, innerHeight);
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     document.getElementById('canvas-container').appendChild(renderer.domElement);
 
     scene.add(new THREE.AmbientLight(0x555555));
-    const light = new THREE.DirectionalLight(0xffffff, 1.15);
-    light.position.set(4, 10, 6);
+    const light = new THREE.DirectionalLight(0xffffff, 1.2);
+    light.position.set(5, 12, 7);
     scene.add(light);
 
     const ground = new THREE.Mesh(
@@ -101,41 +102,39 @@
     const armMat   = new THREE.MeshStandardMaterial({ color: 0xCD853F, roughness: 0.4 });
     const handMat  = new THREE.MeshStandardMaterial({ color: 0xDEB887, roughness: 0.35 });
 
-    // Preview cubes
-    const previewTorso = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.90, 0.38), torsoMat);
-    previewTorso.name = 'torso';
-    scene.add(previewTorso);
+    // Create cubes with pivot at the top (so they rotate more naturally)
+    function makeCube(w, h, d, mat, name) {
+      const geo = new THREE.BoxGeometry(w, h, d);
+      // shift geometry so origin is at the top
+      geo.translate(0, -h/2, 0);
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.name = name;
+      return mesh;
+    }
 
-    const previewHead = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.40, 0.40), headMat);
-    previewHead.name = 'head';
-    scene.add(previewHead);
-
-    const previewUpperL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.48, 0.18), armMat);
-    previewUpperL.name = 'upper_arm.L';
-    scene.add(previewUpperL);
-
-    const previewForeL = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.42, 0.16), armMat);
-    previewForeL.name = 'forearm.L';
-    scene.add(previewForeL);
-
-    const previewHandL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.18, 0.12), handMat);
-    previewHandL.name = 'hand.L';
-    scene.add(previewHandL);
-
-    const previewUpperR = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.48, 0.18), armMat);
-    previewUpperR.name = 'upper_arm.R';
-    scene.add(previewUpperR);
-
-    const previewForeR = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.42, 0.16), armMat);
-    previewForeR.name = 'forearm.R';
-    scene.add(previewForeR);
-
-    const previewHandR = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.18, 0.12), handMat);
-    previewHandR.name = 'hand.R';
-    scene.add(previewHandR);
+    const previewTorso = makeCube(0.60, 0.95, 0.40, torsoMat, 'torso');
+    const previewHead  = makeCube(0.42, 0.42, 0.42, headMat, 'head');
+    const previewUpperL = makeCube(0.18, 0.50, 0.18, armMat, 'upper_arm.L');
+    const previewForeL  = makeCube(0.16, 0.44, 0.16, armMat, 'forearm.L');
+    const previewHandL  = makeCube(0.24, 0.18, 0.12, handMat, 'hand.L');
+    const previewUpperR = makeCube(0.18, 0.50, 0.18, armMat, 'upper_arm.R');
+    const previewForeR  = makeCube(0.16, 0.44, 0.16, armMat, 'forearm.R');
+    const previewHandR  = makeCube(0.24, 0.18, 0.12, handMat, 'hand.R');
 
     const allCubes = [previewTorso, previewHead, previewUpperL, previewForeL, previewHandL, previewUpperR, previewForeR, previewHandR];
-    allCubes.forEach(c => c.visible = false);
+    allCubes.forEach(c => { scene.add(c); c.visible = false; });
+
+    // Default rest positions (T-pose-ish)
+    const REST = {
+      torso:  new THREE.Vector3(0, 1.55, 0),
+      head:   new THREE.Vector3(0, 2.35, 0),
+      upperL: new THREE.Vector3(-0.55, 1.85, 0),
+      foreL:  new THREE.Vector3(-0.95, 1.55, 0),
+      handL:  new THREE.Vector3(-1.25, 1.30, 0),
+      upperR: new THREE.Vector3( 0.55, 1.85, 0),
+      foreR:  new THREE.Vector3( 0.95, 1.55, 0),
+      handR:  new THREE.Vector3( 1.25, 1.30, 0)
+    };
 
     let recording = false;
     let recordedFrames = [];
@@ -190,165 +189,209 @@
     downloadNonames.addEventListener('click', () => {
       const cameraPoseList = recordedFrames.map((frame, i) => {
         const nose = frame.landmarks[0] || { x: 0.5, y: 0.5, z: 0 };
-        const x = (nose.x - 0.5) * 2.0;
-        const y = (0.5 - nose.y) * 1.5 + 1.5;
-        const z = -nose.z * 3.0 - 2.5;
         return {
           frame: i,
           time: frame.t,
-          position: { x, y, z },
+          position: { x: (nose.x-0.5)*2, y: (0.5-nose.y)*1.5+1.5, z: -nose.z*3-2.5 },
           rotation: { x: (nose.y-0.5)*0.5, y: (nose.x-0.5)*0.8, z: 0 }
         };
       });
-      const payload = {
-        cameraPoseList,
-        bodyPoseFrames: recordedFrames,
-        version: 1,
-        source: 'browser-monkemocap'
-      };
-      downloadJSON(payload, `monke-nonames-${Date.now()}.json`);
+      downloadJSON({ cameraPoseList, bodyPoseFrames: recordedFrames, version: 1 }, `monke-nonames-${Date.now()}.json`);
       statusEl.textContent = 'Nonames JSON downloaded.';
     });
 
     // ===== Helpers =====
     function lmToPos(lm) {
       return new THREE.Vector3(
-        (lm.x - 0.5) * 3.0,
-        (0.5 - lm.y) * 3.0,
-        -lm.z * 2.0
+        (lm.x - 0.5) * 2.8,
+        (0.5 - lm.y) * 2.8 + 0.3,
+        -lm.z * 1.8
       );
     }
 
+    function lookAtQuat(from, to) {
+      const dir = new THREE.Vector3().subVectors(to, from).normalize();
+      const quat = new THREE.Quaternion();
+      // default down is (0,-1,0)
+      quat.setFromUnitVectors(new THREE.Vector3(0, -1, 0), dir);
+      return quat;
+    }
+
     function applyGroundClamp(pos) {
-      // lowest points of the arm/hand cubes
       const bottoms = [
-        pos.upperL.y - 0.24,
-        pos.foreL.y  - 0.21,
-        pos.handL.y  - 0.09,
-        pos.upperR.y - 0.24,
-        pos.foreR.y  - 0.21,
-        pos.handR.y  - 0.09
+        pos.upperL.y - 0.25, pos.foreL.y - 0.22, pos.handL.y - 0.09,
+        pos.upperR.y - 0.25, pos.foreR.y - 0.22, pos.handR.y - 0.09
       ];
-      const lowest = Math.min(...bottoms);
       let lift = 0;
+      const lowest = Math.min(...bottoms);
       if (lowest < 0) lift = -lowest;
 
-      // also keep torso from going into the ground
-      const torsoBottom = pos.torso.y - 0.45;
-      if (torsoBottom + lift < 0.05) {
-        lift = Math.max(lift, -torsoBottom + 0.05);
-      }
+      const torsoBottom = pos.torso.y - 0.48;
+      if (torsoBottom + lift < 0.05) lift = Math.max(lift, -torsoBottom + 0.05);
 
-      pos.torso.y  += lift;
-      pos.head.y   += lift;
-      pos.upperL.y += lift;
-      pos.foreL.y  += lift;
-      pos.handL.y  += lift;
-      pos.upperR.y += lift;
-      pos.foreR.y  += lift;
-      pos.handR.y  += lift;
-
+      Object.keys(pos).forEach(k => { if (pos[k].isVector3) pos[k].y += lift; });
       return lift;
     }
 
-    function computeCubePositions(landmarks) {
-      // MediaPipe indices
-      const lShoulder = lmToPos(landmarks[11] || {x:0.42, y:0.42, z:0});
-      const rShoulder = lmToPos(landmarks[12] || {x:0.58, y:0.42, z:0});
-      const lElbow    = lmToPos(landmarks[13] || {x:0.38, y:0.55, z:0});
-      const rElbow    = lmToPos(landmarks[14] || {x:0.62, y:0.55, z:0});
-      const lWrist    = lmToPos(landmarks[15] || {x:0.32, y:0.70, z:0});
-      const rWrist    = lmToPos(landmarks[16] || {x:0.68, y:0.70, z:0});
-      const nose      = lmToPos(landmarks[0]  || {x:0.50, y:0.32, z:0});
+    function computePose(landmarks) {
+      const lS = lmToPos(landmarks[11] || {x:0.42,y:0.40,z:0});
+      const rS = lmToPos(landmarks[12] || {x:0.58,y:0.40,z:0});
+      const lE = lmToPos(landmarks[13] || {x:0.38,y:0.55,z:0});
+      const rE = lmToPos(landmarks[14] || {x:0.62,y:0.55,z:0});
+      const lW = lmToPos(landmarks[15] || {x:0.32,y:0.70,z:0});
+      const rW = lmToPos(landmarks[16] || {x:0.68,y:0.70,z:0});
+      const nose = lmToPos(landmarks[0] || {x:0.50,y:0.28,z:0});
 
-      // Torso = center between shoulders, pushed a bit lower so it sits under them
-      const torso = new THREE.Vector3().addVectors(lShoulder, rShoulder).multiplyScalar(0.5);
-      torso.y -= 0.28;          // sit under the shoulders
-      torso.z += 0.05;          // slight depth correction
+      // Torso position = midpoint of shoulders, lowered
+      const torsoPos = new THREE.Vector3().addVectors(lS, rS).multiplyScalar(0.5);
+      torsoPos.y -= 0.35;
 
-      // Head sits above the nose a little
-      const head = nose.clone();
-      head.y += 0.18;
+      // Torso rotation (only Y / left-right)
+      const shoulderDir = new THREE.Vector3().subVectors(rS, lS).normalize();
+      const torsoYaw = Math.atan2(shoulderDir.x, shoulderDir.z);
+      const torsoQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, torsoYaw, 0));
 
-      // Upper arms = midpoint shoulder → elbow
-      const upperL = new THREE.Vector3().addVectors(lShoulder, lElbow).multiplyScalar(0.5);
-      const upperR = new THREE.Vector3().addVectors(rShoulder, rElbow).multiplyScalar(0.5);
+      // Head position + only pitch (up/down)
+      const headPos = nose.clone();
+      headPos.y += 0.15;
+      const neckToHead = new THREE.Vector3().subVectors(headPos, torsoPos).normalize();
+      const headPitch = Math.asin(Math.max(-1, Math.min(1, -neckToHead.y))) * 0.7;
+      const headQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(headPitch, torsoYaw, 0));
 
-      // Forearms = midpoint elbow → wrist
-      const foreL = new THREE.Vector3().addVectors(lElbow, lWrist).multiplyScalar(0.5);
-      const foreR = new THREE.Vector3().addVectors(rElbow, rWrist).multiplyScalar(0.5);
+      // Arms - full free rotation using lookAt style
+      const upperLPos = new THREE.Vector3().addVectors(lS, lE).multiplyScalar(0.5);
+      const upperLQuat = lookAtQuat(lS, lE);
 
-      // Hands = at the wrists
-      const handL = lWrist.clone();
-      const handR = rWrist.clone();
+      const foreLPos = new THREE.Vector3().addVectors(lE, lW).multiplyScalar(0.5);
+      const foreLQuat = lookAtQuat(lE, lW);
 
-      const pos = { torso, head, upperL, foreL, handL, upperR, foreR, handR };
-      applyGroundClamp(pos);
-      return pos;
+      const handLPos = lW.clone();
+      const handLQuat = lookAtQuat(lE, lW);
+
+      const upperRPos = new THREE.Vector3().addVectors(rS, rE).multiplyScalar(0.5);
+      const upperRQuat = lookAtQuat(rS, rE);
+
+      const foreRPos = new THREE.Vector3().addVectors(rE, rW).multiplyScalar(0.5);
+      const foreRQuat = lookAtQuat(rE, rW);
+
+      const handRPos = rW.clone();
+      const handRQuat = lookAtQuat(rE, rW);
+
+      const result = {
+        torso: { pos: torsoPos, quat: torsoQuat },
+        head:  { pos: headPos,  quat: headQuat },
+        upperL:{ pos: upperLPos, quat: upperLQuat },
+        foreL: { pos: foreLPos,  quat: foreLQuat },
+        handL: { pos: handLPos,  quat: handLQuat },
+        upperR:{ pos: upperRPos, quat: upperRQuat },
+        foreR: { pos: foreRPos,  quat: foreRQuat },
+        handR: { pos: handRPos,  quat: handRQuat }
+      };
+
+      // Ground clamp on positions
+      const posOnly = {
+        torso: result.torso.pos, head: result.head.pos,
+        upperL: result.upperL.pos, foreL: result.foreL.pos, handL: result.handL.pos,
+        upperR: result.upperR.pos, foreR: result.foreR.pos, handR: result.handR.pos
+      };
+      applyGroundClamp(posOnly);
+
+      return result;
     }
 
-    // ===== GLTF export =====
+    // Apply to live preview
+    function updatePreview(pose) {
+      previewTorso.position.copy(pose.torso.pos);
+      previewTorso.quaternion.copy(pose.torso.quat);
+
+      previewHead.position.copy(pose.head.pos);
+      previewHead.quaternion.copy(pose.head.quat);
+
+      previewUpperL.position.copy(pose.upperL.pos);
+      previewUpperL.quaternion.copy(pose.upperL.quat);
+
+      previewForeL.position.copy(pose.foreL.pos);
+      previewForeL.quaternion.copy(pose.foreL.quat);
+
+      previewHandL.position.copy(pose.handL.pos);
+      previewHandL.quaternion.copy(pose.handL.quat);
+
+      previewUpperR.position.copy(pose.upperR.pos);
+      previewUpperR.quaternion.copy(pose.upperR.quat);
+
+      previewForeR.position.copy(pose.foreR.pos);
+      previewForeR.quaternion.copy(pose.foreR.quat);
+
+      previewHandR.position.copy(pose.handR.pos);
+      previewHandR.quaternion.copy(pose.handR.quat);
+
+      allCubes.forEach(c => c.visible = true);
+    }
+
+    // ===== GLTF export with rotations =====
     downloadGltf.addEventListener('click', () => {
       if (recordedFrames.length === 0) return;
-      statusEl.textContent = 'Building GLTF with hands + fixed torso…';
+      statusEl.textContent = 'Building GLTF with rotations (default start pose)…';
 
       const exportScene = new THREE.Scene();
 
-      const torso = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.90, 0.38), torsoMat.clone());
-      torso.name = 'torso';
-      exportScene.add(torso);
+      // Create the same cubes for export
+      const torso = makeCube(0.60, 0.95, 0.40, torsoMat.clone(), 'torso');
+      const head  = makeCube(0.42, 0.42, 0.42, headMat.clone(), 'head');
+      const upperL = makeCube(0.18, 0.50, 0.18, armMat.clone(), 'upper_arm.L');
+      const foreL  = makeCube(0.16, 0.44, 0.16, armMat.clone(), 'forearm.L');
+      const handL  = makeCube(0.24, 0.18, 0.12, handMat.clone(), 'hand.L');
+      const upperR = makeCube(0.18, 0.50, 0.18, armMat.clone(), 'upper_arm.R');
+      const foreR  = makeCube(0.16, 0.44, 0.16, armMat.clone(), 'forearm.R');
+      const handR  = makeCube(0.24, 0.18, 0.12, handMat.clone(), 'hand.R');
 
-      const head = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.40, 0.40), headMat.clone());
-      head.name = 'head';
-      exportScene.add(head);
+      [torso, head, upperL, foreL, handL, upperR, foreR, handR].forEach(c => exportScene.add(c));
 
-      const upperArmL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.48, 0.18), armMat.clone());
-      upperArmL.name = 'upper_arm.L';
-      exportScene.add(upperArmL);
-
-      const forearmL = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.42, 0.16), armMat.clone());
-      forearmL.name = 'forearm.L';
-      exportScene.add(forearmL);
-
-      const handL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.18, 0.12), handMat.clone());
-      handL.name = 'hand.L';
-      exportScene.add(handL);
-
-      const upperArmR = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.48, 0.18), armMat.clone());
-      upperArmR.name = 'upper_arm.R';
-      exportScene.add(upperArmR);
-
-      const forearmR = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.42, 0.16), armMat.clone());
-      forearmR.name = 'forearm.R';
-      exportScene.add(forearmR);
-
-      const handR = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.18, 0.12), handMat.clone());
-      handR.name = 'hand.R';
-      exportScene.add(handR);
-
-      const times = recordedFrames.map(f => f.t);
+      // Start with a default pose frame at t=0
+      const times = [0, ...recordedFrames.map(f => f.t + 0.05)];
       const duration = times[times.length - 1] || 1;
 
-      function makePosTrack(name, getter) {
-        const values = [];
+      function makeTracks(name, getterPos, getterQuat) {
+        const posValues = [];
+        const quatValues = [];
+
+        // Frame 0 = default rest pose
+        const restPos = REST[name === 'torso' ? 'torso' :
+                            name === 'head' ? 'head' :
+                            name === 'upper_arm.L' ? 'upperL' :
+                            name === 'forearm.L' ? 'foreL' :
+                            name === 'hand.L' ? 'handL' :
+                            name === 'upper_arm.R' ? 'upperR' :
+                            name === 'forearm.R' ? 'foreR' : 'handR'];
+        posValues.push(restPos.x, restPos.y, restPos.z);
+        quatValues.push(0, 0, 0, 1); // identity
+
         recordedFrames.forEach(frame => {
-          const p = computeCubePositions(frame.landmarks);
-          const v = getter(p);
-          values.push(v.x, v.y, v.z);
+          const pose = computePose(frame.landmarks);
+          const p = getterPos(pose);
+          const q = getterQuat(pose);
+          posValues.push(p.x, p.y, p.z);
+          quatValues.push(q.x, q.y, q.z, q.w);
         });
-        return new THREE.VectorKeyframeTrack(name + '.position', times, values);
+
+        return [
+          new THREE.VectorKeyframeTrack(name + '.position', times, posValues),
+          new THREE.QuaternionKeyframeTrack(name + '.quaternion', times, quatValues)
+        ];
       }
 
-      const clip = new THREE.AnimationClip('MonkeCubes', duration, [
-        makePosTrack('torso', p => p.torso),
-        makePosTrack('head',  p => p.head),
-        makePosTrack('upper_arm.L', p => p.upperL),
-        makePosTrack('forearm.L',  p => p.foreL),
-        makePosTrack('hand.L',     p => p.handL),
-        makePosTrack('upper_arm.R', p => p.upperR),
-        makePosTrack('forearm.R',  p => p.foreR),
-        makePosTrack('hand.R',     p => p.handR)
-      ]);
+      const tracks = [
+        ...makeTracks('torso', p => p.torso.pos, p => p.torso.quat),
+        ...makeTracks('head',  p => p.head.pos,  p => p.head.quat),
+        ...makeTracks('upper_arm.L', p => p.upperL.pos, p => p.upperL.quat),
+        ...makeTracks('forearm.L',  p => p.foreL.pos,  p => p.foreL.quat),
+        ...makeTracks('hand.L',     p => p.handL.pos,  p => p.handL.quat),
+        ...makeTracks('upper_arm.R', p => p.upperR.pos, p => p.upperR.quat),
+        ...makeTracks('forearm.R',  p => p.foreR.pos,  p => p.foreR.quat),
+        ...makeTracks('hand.R',     p => p.handR.pos,  p => p.handR.quat)
+      ];
+
+      const clip = new THREE.AnimationClip('MonkeRotations', duration, tracks);
 
       const exporter = new THREE.GLTFExporter();
       exporter.parse(
@@ -358,10 +401,10 @@
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
-          a.download = `monke-full-cubes-${Date.now()}.gltf`;
+          a.download = `monke-rotated-${Date.now()}.gltf`;
           a.click();
           URL.revokeObjectURL(url);
-          statusEl.textContent = 'GLTF downloaded! Now includes hands + better torso.';
+          statusEl.textContent = 'GLTF downloaded! Starts at default pose + proper rotations.';
         },
         { animations: [clip], binary: false }
       );
@@ -397,18 +440,8 @@
         return;
       }
 
-      const pos = computeCubePositions(results.poseLandmarks);
-
-      previewTorso.position.copy(pos.torso);
-      previewHead.position.copy(pos.head);
-      previewUpperL.position.copy(pos.upperL);
-      previewForeL.position.copy(pos.foreL);
-      previewHandL.position.copy(pos.handL);
-      previewUpperR.position.copy(pos.upperR);
-      previewForeR.position.copy(pos.foreR);
-      previewHandR.position.copy(pos.handR);
-
-      allCubes.forEach(c => c.visible = true);
+      const p = computePose(results.poseLandmarks);
+      updatePreview(p);
 
       if (recording) {
         const t = (performance.now() - startTime) / 1000;
@@ -438,7 +471,7 @@
           width: 640, height: 480
         });
         cam.start();
-        statusEl.textContent = 'Camera ready! Cubes (with hands) will appear when body is detected.';
+        statusEl.textContent = 'Camera ready! Cubes start in default pose and rotate properly.';
       } catch (err) {
         statusEl.textContent = 'Camera error: ' + err.message;
       }
