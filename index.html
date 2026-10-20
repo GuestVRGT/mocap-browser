@@ -13,7 +13,7 @@
     }
     #ui {
       position: absolute; top: 12px; left: 12px; z-index: 20;
-      background: rgba(13,17,23,0.9); padding: 14px 16px;
+      background: rgba(13,17,23,0.92); padding: 14px 16px;
       border-radius: 12px; border: 1px solid #30363d;
       max-width: 360px; font-size: 13px; line-height: 1.45;
     }
@@ -47,11 +47,8 @@
 <body>
   <div id="ui">
     <h1>Browser MonkeMocap 🐒</h1>
-    <p>Body tracking + exports<br>
-    • Body JSON<br>
-    • Nonames JSON<br>
-    • <b>GLTF</b> with <code>torso</code>, <code>head</code> + <b>4 arm cubes</b>:<br>
-      <code>upper_arm.L</code>, <code>forearm.L</code>, <code>upper_arm.R</code>, <code>forearm.R</code></p>
+    <p>Live cube preview + ground clamp<br>
+    Arms never go below Y=0. If they try, the whole body lifts.</p>
     <div class="btn-row">
       <button id="recordBtn">● Record</button>
       <button id="stopBtn" disabled>Stop</button>
@@ -59,7 +56,7 @@
     <div class="btn-row">
       <button id="downloadBody" disabled>Body JSON</button>
       <button id="downloadNonames" disabled>Nonames JSON</button>
-      <button id="downloadGltf" disabled>GLTF (arms+body)</button>
+      <button id="downloadGltf" disabled>GLTF (cubes)</button>
     </div>
     <div id="status">Waiting for camera…</div>
   </div>
@@ -76,47 +73,62 @@
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0d1117);
     const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 100);
-    camera.position.set(0, 1.6, 4.5);
+    camera.position.set(0, 2.2, 5.5);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(innerWidth, innerHeight);
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-    scene.add(new THREE.AmbientLight(0x404040));
-    const light = new THREE.DirectionalLight(0xffffff, 1.0);
-    light.position.set(3, 8, 5);
+    scene.add(new THREE.AmbientLight(0x555555));
+    const light = new THREE.DirectionalLight(0xffffff, 1.1);
+    light.position.set(4, 10, 6);
     scene.add(light);
 
+    // Ground plane at Y=0
     const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(20, 20),
-      new THREE.MeshLambertMaterial({ color: 0x161b22 })
+      new THREE.PlaneGeometry(30, 30),
+      new THREE.MeshLambertMaterial({ color: 0x1a2332 })
     );
     ground.rotation.x = -Math.PI / 2;
+    ground.position.y = 0;
     scene.add(ground);
 
-    // Live preview
-    const jointMat = new THREE.MeshLambertMaterial({ color: 0x7ee787 });
-    const boneMat = new THREE.MeshLambertMaterial({ color: 0x3fb950 });
-    const joints = [];
-    const bones = [];
-    const POSE_CONNECTIONS = [
-      [11,12],[11,13],[13,15],[12,14],[14,16],
-      [11,23],[12,24],[23,24],
-      [23,25],[25,27],[24,26],[26,28]
-    ];
+    // Grid helper
+    const grid = new THREE.GridHelper(20, 20, 0x30363d, 0x21262d);
+    grid.position.y = 0.01;
+    scene.add(grid);
 
-    for (let i = 0; i < 33; i++) {
-      const j = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), jointMat);
-      j.visible = false;
-      scene.add(j);
-      joints.push(j);
-    }
-    POSE_CONNECTIONS.forEach(() => {
-      const b = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 1), boneMat);
-      b.visible = false;
-      scene.add(b);
-      bones.push(b);
-    });
+    // ===== LIVE PREVIEW CUBES =====
+    const torsoMat = new THREE.MeshStandardMaterial({ color: 0x8B4513, roughness: 0.4 });
+    const headMat  = new THREE.MeshStandardMaterial({ color: 0xA0522D, roughness: 0.4 });
+    const armMat   = new THREE.MeshStandardMaterial({ color: 0xCD853F, roughness: 0.4 });
+
+    const previewTorso = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.85, 0.35), torsoMat);
+    previewTorso.name = 'torso';
+    scene.add(previewTorso);
+
+    const previewHead = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.38, 0.38), headMat);
+    previewHead.name = 'head';
+    scene.add(previewHead);
+
+    const previewUpperL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.45, 0.18), armMat);
+    previewUpperL.name = 'upper_arm.L';
+    scene.add(previewUpperL);
+
+    const previewForeL = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.40, 0.16), armMat);
+    previewForeL.name = 'forearm.L';
+    scene.add(previewForeL);
+
+    const previewUpperR = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.45, 0.18), armMat);
+    previewUpperR.name = 'upper_arm.R';
+    scene.add(previewUpperR);
+
+    const previewForeR = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.40, 0.16), armMat);
+    previewForeR.name = 'forearm.R';
+    scene.add(previewForeR);
+
+    // Hide until we have tracking
+    [previewTorso, previewHead, previewUpperL, previewForeL, previewUpperR, previewForeR].forEach(c => c.visible = false);
 
     let recording = false;
     let recordedFrames = [];
@@ -191,105 +203,124 @@
       statusEl.textContent = 'Nonames JSON downloaded.';
     });
 
-    // GLTF with torso + head + 4 arm cubes
+    // ===== Helpers =====
+    function lmToPos(lm) {
+      // MediaPipe: x right, y down, z toward camera
+      // We want: x right, y up, z toward camera (negative)
+      return new THREE.Vector3(
+        (lm.x - 0.5) * 3.2,
+        (0.5 - lm.y) * 3.2,   // no extra +1.0 offset here
+        -lm.z * 2.2
+      );
+    }
+
+    // Apply ground clamp: find lowest arm Y, if < 0 lift everything by that amount
+    function applyGroundClamp(positions) {
+      // positions = { torso, head, upperL, foreL, upperR, foreR }
+      const armYs = [
+        positions.upperL.y - 0.225, // half height of upper arm box
+        positions.foreL.y  - 0.20,
+        positions.upperR.y - 0.225,
+        positions.foreR.y  - 0.20
+      ];
+      const lowest = Math.min(...armYs);
+      let lift = 0;
+      if (lowest < 0) {
+        lift = -lowest; // push everything up so lowest = 0
+      }
+      // Also make sure torso doesn't go too low
+      const torsoBottom = positions.torso.y - 0.425;
+      if (torsoBottom + lift < 0.1) {
+        lift = Math.max(lift, -torsoBottom + 0.1);
+      }
+
+      positions.torso.y += lift;
+      positions.head.y  += lift;
+      positions.upperL.y += lift;
+      positions.foreL.y  += lift;
+      positions.upperR.y += lift;
+      positions.foreR.y  += lift;
+
+      return lift;
+    }
+
+    function computeCubePositions(landmarks) {
+      const lShoulder = lmToPos(landmarks[11] || {x:0.4,y:0.45,z:0});
+      const rShoulder = lmToPos(landmarks[12] || {x:0.6,y:0.45,z:0});
+      const lElbow    = lmToPos(landmarks[13] || {x:0.35,y:0.55,z:0});
+      const rElbow    = lmToPos(landmarks[14] || {x:0.65,y:0.55,z:0});
+      const lWrist    = lmToPos(landmarks[15] || {x:0.3,y:0.7,z:0});
+      const rWrist    = lmToPos(landmarks[16] || {x:0.7,y:0.7,z:0});
+      const nose      = lmToPos(landmarks[0]  || {x:0.5,y:0.35,z:0});
+
+      const torso = new THREE.Vector3().addVectors(lShoulder, rShoulder).multiplyScalar(0.5);
+      // slight downward bias so torso sits under the shoulders
+      torso.y -= 0.15;
+
+      const head = nose.clone();
+      head.y += 0.15; // sit on top of neck area
+
+      const upperL = new THREE.Vector3().addVectors(lShoulder, lElbow).multiplyScalar(0.5);
+      const foreL  = new THREE.Vector3().addVectors(lElbow, lWrist).multiplyScalar(0.5);
+      const upperR = new THREE.Vector3().addVectors(rShoulder, rElbow).multiplyScalar(0.5);
+      const foreR  = new THREE.Vector3().addVectors(rElbow, rWrist).multiplyScalar(0.5);
+
+      const positions = { torso, head, upperL, foreL, upperR, foreR };
+      applyGroundClamp(positions);
+      return positions;
+    }
+
+    // ===== GLTF export =====
     downloadGltf.addEventListener('click', () => {
       if (recordedFrames.length === 0) return;
-      statusEl.textContent = 'Building GLTF (torso + head + 4 arm cubes)…';
+      statusEl.textContent = 'Building GLTF with ground-clamped cubes…';
 
       const exportScene = new THREE.Scene();
 
-      const torsoMat = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
-      const headMat  = new THREE.MeshStandardMaterial({ color: 0xA0522D });
-      const armMat   = new THREE.MeshStandardMaterial({ color: 0xCD853F });
-
-      // Body
-      const torso = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.85, 0.35), torsoMat);
+      const torso = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.85, 0.35), torsoMat.clone());
       torso.name = 'torso';
       exportScene.add(torso);
 
-      const head = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.38, 0.38), headMat);
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.38, 0.38), headMat.clone());
       head.name = 'head';
       exportScene.add(head);
 
-      // 4 arm cubes
-      const upperArmL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.45, 0.18), armMat);
+      const upperArmL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.45, 0.18), armMat.clone());
       upperArmL.name = 'upper_arm.L';
       exportScene.add(upperArmL);
 
-      const forearmL = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.40, 0.16), armMat);
+      const forearmL = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.40, 0.16), armMat.clone());
       forearmL.name = 'forearm.L';
       exportScene.add(forearmL);
 
-      const upperArmR = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.45, 0.18), armMat);
+      const upperArmR = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.45, 0.18), armMat.clone());
       upperArmR.name = 'upper_arm.R';
       exportScene.add(upperArmR);
 
-      const forearmR = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.40, 0.16), armMat);
+      const forearmR = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.40, 0.16), armMat.clone());
       forearmR.name = 'forearm.R';
       exportScene.add(forearmR);
-
-      function lmToPos(lm) {
-        return new THREE.Vector3(
-          (lm.x - 0.5) * 3.5,
-          (0.5 - lm.y) * 3.5 + 1.0,
-          -lm.z * 2.5
-        );
-      }
 
       const times = recordedFrames.map(f => f.t);
       const duration = times[times.length - 1] || 1;
 
-      function makePosTrack(name, getPosFn) {
+      function makePosTrack(name, getter) {
         const values = [];
         recordedFrames.forEach(frame => {
-          const p = getPosFn(frame.landmarks);
+          const pos = computeCubePositions(frame.landmarks);
+          const p = getter(pos);
           values.push(p.x, p.y, p.z);
         });
         return new THREE.VectorKeyframeTrack(name + '.position', times, values);
       }
 
-      // torso = average of shoulders (11 + 12)
-      const torsoTrack = makePosTrack('torso', (lms) => {
-        const l = lmToPos(lms[11] || {x:0.45,y:0.45,z:0});
-        const r = lmToPos(lms[12] || {x:0.55,y:0.45,z:0});
-        return new THREE.Vector3().addVectors(l, r).multiplyScalar(0.5);
-      });
-
-      // head = nose (0)
-      const headTrack = makePosTrack('head', (lms) => lmToPos(lms[0] || {x:0.5,y:0.35,z:0}));
-
-      // upper_arm.L = midpoint of left shoulder (11) and left elbow (13)
-      const upperArmLTrack = makePosTrack('upper_arm.L', (lms) => {
-        const s = lmToPos(lms[11] || {x:0.4,y:0.45,z:0});
-        const e = lmToPos(lms[13] || {x:0.35,y:0.55,z:0});
-        return new THREE.Vector3().addVectors(s, e).multiplyScalar(0.5);
-      });
-
-      // forearm.L = midpoint of left elbow (13) and left wrist (15)
-      const forearmLTrack = makePosTrack('forearm.L', (lms) => {
-        const e = lmToPos(lms[13] || {x:0.35,y:0.55,z:0});
-        const w = lmToPos(lms[15] || {x:0.3,y:0.7,z:0});
-        return new THREE.Vector3().addVectors(e, w).multiplyScalar(0.5);
-      });
-
-      // upper_arm.R = midpoint of right shoulder (12) and right elbow (14)
-      const upperArmRTrack = makePosTrack('upper_arm.R', (lms) => {
-        const s = lmToPos(lms[12] || {x:0.6,y:0.45,z:0});
-        const e = lmToPos(lms[14] || {x:0.65,y:0.55,z:0});
-        return new THREE.Vector3().addVectors(s, e).multiplyScalar(0.5);
-      });
-
-      // forearm.R = midpoint of right elbow (14) and right wrist (16)
-      const forearmRTrack = makePosTrack('forearm.R', (lms) => {
-        const e = lmToPos(lms[14] || {x:0.65,y:0.55,z:0});
-        const w = lmToPos(lms[16] || {x:0.7,y:0.7,z:0});
-        return new THREE.Vector3().addVectors(e, w).multiplyScalar(0.5);
-      });
-
-      const clip = new THREE.AnimationClip('MonkeArms', duration, [
-        torsoTrack, headTrack,
-        upperArmLTrack, forearmLTrack,
-        upperArmRTrack, forearmRTrack
+      const clip = new THREE.AnimationClip('MonkeCubes', duration, [
+        makePosTrack('torso', p => p.torso),
+        makePosTrack('head',  p => p.head),
+        makePosTrack('upper_arm.L', p => p.upperL),
+        makePosTrack('forearm.L',  p => p.foreL),
+        makePosTrack('upper_arm.R', p => p.upperR),
+        makePosTrack('forearm.R',  p => p.foreR)
       ]);
 
       const exporter = new THREE.GLTFExporter();
@@ -300,10 +331,10 @@
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
-          a.download = `monke-arms-body-${Date.now()}.gltf`;
+          a.download = `monke-cubes-clamped-${Date.now()}.gltf`;
           a.click();
           URL.revokeObjectURL(url);
-          statusEl.textContent = 'GLTF downloaded! Includes torso, head + 4 arm cubes (upper_arm.L/R, forearm.L/R)';
+          statusEl.textContent = 'GLTF downloaded! Cubes are ground-clamped.';
         },
         { animations: [clip], binary: false }
       );
@@ -319,7 +350,7 @@
       URL.revokeObjectURL(url);
     }
 
-    // MediaPipe
+    // ===== MediaPipe =====
     const videoElement = document.getElementById('video');
 
     const pose = new Pose({
@@ -335,34 +366,20 @@
 
     pose.onResults((results) => {
       if (!results.poseLandmarks) {
-        joints.forEach(j => j.visible = false);
-        bones.forEach(b => b.visible = false);
+        [previewTorso, previewHead, previewUpperL, previewForeL, previewUpperR, previewForeR].forEach(c => c.visible = false);
         return;
       }
 
-      results.poseLandmarks.forEach((lm, i) => {
-        const j = joints[i];
-        j.visible = lm.visibility > 0.3;
-        j.position.set(
-          (lm.x - 0.5) * 3.5,
-          (0.5 - lm.y) * 3.5 + 1.2,
-          -lm.z * 2.5
-        );
-      });
+      const pos = computeCubePositions(results.poseLandmarks);
 
-      POSE_CONNECTIONS.forEach((conn, idx) => {
-        const a = joints[conn[0]];
-        const b = joints[conn[1]];
-        const bone = bones[idx];
-        if (!a.visible || !b.visible) { bone.visible = false; return; }
-        bone.visible = true;
-        const mid = new THREE.Vector3().addVectors(a.position, b.position).multiplyScalar(0.5);
-        bone.position.copy(mid);
-        const dir = new THREE.Vector3().subVectors(b.position, a.position);
-        const len = dir.length();
-        bone.scale.set(1, len, 1);
-        bone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
-      });
+      previewTorso.position.copy(pos.torso);
+      previewHead.position.copy(pos.head);
+      previewUpperL.position.copy(pos.upperL);
+      previewForeL.position.copy(pos.foreL);
+      previewUpperR.position.copy(pos.upperR);
+      previewForeR.position.copy(pos.foreR);
+
+      [previewTorso, previewHead, previewUpperL, previewForeL, previewUpperR, previewForeR].forEach(c => c.visible = true);
 
       if (recording) {
         const t = (performance.now() - startTime) / 1000;
@@ -392,7 +409,7 @@
           width: 640, height: 480
         });
         cam.start();
-        statusEl.textContent = 'Camera ready! Record then export GLTF (torso + head + 4 arm cubes).';
+        statusEl.textContent = 'Camera ready! Cubes will appear when body is detected.';
       } catch (err) {
         statusEl.textContent = 'Camera error: ' + err.message;
       }
