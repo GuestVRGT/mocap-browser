@@ -13,23 +13,24 @@
     }
     #ui {
       position: absolute; top: 12px; left: 12px; z-index: 20;
-      background: rgba(13,17,23,0.85); padding: 14px 16px;
+      background: rgba(13,17,23,0.88); padding: 14px 16px;
       border-radius: 12px; border: 1px solid #30363d;
-      max-width: 280px; font-size: 13px; line-height: 1.45;
+      max-width: 320px; font-size: 13px; line-height: 1.45;
     }
     #ui h1 { margin: 0 0 6px; font-size: 18px; color: #7ee787; }
     #ui p { margin: 0 0 10px; opacity: 0.85; }
     .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
     button {
-      padding: 8px 14px; border: none; border-radius: 8px;
-      font-weight: 600; font-size: 13px; cursor: pointer;
+      padding: 8px 12px; border: none; border-radius: 8px;
+      font-weight: 600; font-size: 12px; cursor: pointer;
       transition: transform 0.1s;
     }
     button:active { transform: scale(0.96); }
     #recordBtn { background: #da3633; color: white; }
     #recordBtn.recording { background: #f85149; animation: pulse 1s infinite; }
     #stopBtn { background: #21262d; color: #e6edf3; border: 1px solid #30363d; }
-    #downloadBtn { background: #238636; color: white; }
+    #downloadBody { background: #238636; color: white; }
+    #downloadNonames { background: #1f6feb; color: white; }
     button:disabled { opacity: 0.45; cursor: not-allowed; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.7} }
     #status { margin-top: 10px; font-size: 12px; color: #8b949e; }
@@ -46,11 +47,16 @@
 <body>
   <div id="ui">
     <h1>Browser MonkeMocap 🐒</h1>
-    <p>Webcam body tracking + record pose data as JSON (inspired by MonkeMocap vibes)</p>
+    <p>Webcam body tracking + dual export<br>
+    • Body JSON → for Blender gorilla later<br>
+    • Nonames JSON → has cameraPoseList so the converter accepts it</p>
     <div class="btn-row">
       <button id="recordBtn">● Record</button>
       <button id="stopBtn" disabled>Stop</button>
-      <button id="downloadBtn" disabled>Download JSON</button>
+    </div>
+    <div class="btn-row">
+      <button id="downloadBody" disabled>Download Body JSON</button>
+      <button id="downloadNonames" disabled>Download for Nonames</button>
     </div>
     <div id="status">Waiting for camera…</div>
   </div>
@@ -63,7 +69,6 @@
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
 
   <script>
-    // ---- simple monke / stick figure setup ----
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0d1117);
     const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 100);
@@ -78,7 +83,6 @@
     light.position.set(3, 8, 5);
     scene.add(light);
 
-    // ground
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(20, 20),
       new THREE.MeshLambertMaterial({ color: 0x161b22 })
@@ -86,18 +90,16 @@
     ground.rotation.x = -Math.PI / 2;
     scene.add(ground);
 
-    // simple joint spheres + bones
     const jointMat = new THREE.MeshLambertMaterial({ color: 0x7ee787 });
     const boneMat = new THREE.MeshLambertMaterial({ color: 0x3fb950 });
     const joints = [];
     const bones = [];
 
-    // MediaPipe Pose connections (simplified)
     const POSE_CONNECTIONS = [
-      [11,12],[11,13],[13,15],[12,14],[14,16], // arms
-      [11,23],[12,24],[23,24],                 // torso
-      [23,25],[25,27],[24,26],[26,28],         // legs
-      [15,17],[15,19],[15,21],[16,18],[16,20],[16,22] // hands (optional)
+      [11,12],[11,13],[13,15],[12,14],[14,16],
+      [11,23],[12,24],[23,24],
+      [23,25],[25,27],[24,26],[26,28],
+      [15,17],[15,19],[15,21],[16,18],[16,20],[16,22]
     ];
 
     for (let i = 0; i < 33; i++) {
@@ -108,23 +110,20 @@
     }
 
     POSE_CONNECTIONS.forEach(() => {
-      const b = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.015, 0.015, 1),
-        boneMat
-      );
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 1), boneMat);
       b.visible = false;
       scene.add(b);
       bones.push(b);
     });
 
-    // ---- recording state ----
     let recording = false;
     let recordedFrames = [];
     let startTime = 0;
 
     const recordBtn = document.getElementById('recordBtn');
     const stopBtn = document.getElementById('stopBtn');
-    const downloadBtn = document.getElementById('downloadBtn');
+    const downloadBody = document.getElementById('downloadBody');
+    const downloadNonames = document.getElementById('downloadNonames');
     const statusEl = document.getElementById('status');
 
     recordBtn.addEventListener('click', () => {
@@ -135,8 +134,9 @@
       recordBtn.textContent = '● Recording…';
       recordBtn.disabled = true;
       stopBtn.disabled = false;
-      downloadBtn.disabled = true;
-      statusEl.textContent = 'Recording pose data… move around!';
+      downloadBody.disabled = true;
+      downloadNonames.disabled = true;
+      statusEl.textContent = 'Recording… move around like a monke!';
     });
 
     stopBtn.addEventListener('click', () => {
@@ -145,11 +145,14 @@
       recordBtn.textContent = '● Record';
       recordBtn.disabled = false;
       stopBtn.disabled = true;
-      downloadBtn.disabled = recordedFrames.length === 0;
+      const hasData = recordedFrames.length > 0;
+      downloadBody.disabled = !hasData;
+      downloadNonames.disabled = !hasData;
       statusEl.textContent = `Stopped. ${recordedFrames.length} frames captured.`;
     });
 
-    downloadBtn.addEventListener('click', () => {
+    // Normal body-pose JSON (for Blender later)
+    downloadBody.addEventListener('click', () => {
       const payload = {
         version: 1,
         type: 'mediapipe-pose',
@@ -157,19 +160,66 @@
         recordedAt: new Date().toISOString(),
         frames: recordedFrames
       };
-      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      downloadJSON(payload, `monke-body-pose-${Date.now()}.json`);
+      statusEl.textContent = 'Body pose JSON downloaded! Use this for Blender gorilla later.';
+    });
+
+    // Nonames-compatible JSON with cameraPoseList
+    // We fake a camera path from the nose / head landmark so the converter accepts the file
+    downloadNonames.addEventListener('click', () => {
+      const cameraPoseList = recordedFrames.map((frame, i) => {
+        // MediaPipe landmark 0 = nose
+        const nose = frame.landmarks[0] || { x: 0.5, y: 0.5, z: 0 };
+        // Convert normalized coords into a simple camera transform
+        // (this is a fake path so Nonames stops complaining)
+        const x = (nose.x - 0.5) * 2.0;
+        const y = (0.5 - nose.y) * 1.5 + 1.5;
+        const z = -nose.z * 3.0 - 2.5;
+
+        // Simple look-at style rotation approximation
+        const rotY = (nose.x - 0.5) * 0.8;
+        const rotX = (nose.y - 0.5) * 0.5;
+
+        return {
+          frame: i,
+          time: frame.t,
+          position: { x, y, z },
+          rotation: { x: rotX, y: rotY, z: 0 },
+          // some converters also look for matrix or quaternion – keep it simple
+          matrix: [
+            1, 0, 0, 0,
+            0, 1, 0, 0,
+            0, 0, 1, 0,
+            x, y, z, 1
+          ]
+        };
+      });
+
+      const payload = {
+        // Minimal structure that satisfies "cameraPoseList found"
+        cameraPoseList: cameraPoseList,
+        // Keep original data too so you still have the body poses
+        bodyPoseFrames: recordedFrames,
+        version: 1,
+        source: 'browser-monkemocap-fake-camera',
+        note: 'cameraPoseList is derived from head/nose movement so Nonames converter accepts the file. Real AR camera tracking still needs Blendartrack/Retargeter.'
+      };
+
+      downloadJSON(payload, `monke-nonames-camera-${Date.now()}.json`);
+      statusEl.textContent = 'Nonames-compatible JSON downloaded! Upload this one to the converter.';
+    });
+
+    function downloadJSON(obj, filename) {
+      const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `monke-mocap-${Date.now()}.json`;
+      a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
-      statusEl.textContent = 'JSON downloaded! You can try mapping it to a Blender gorilla rig later.';
-    });
+    }
 
-    // ---- MediaPipe Pose ----
     const videoElement = document.getElementById('video');
-    let lastLandmarks = null;
 
     const pose = new Pose({
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
@@ -189,13 +239,9 @@
         return;
       }
 
-      lastLandmarks = results.poseLandmarks;
-
-      // update 3D joints (simple mapping: x right, y up, z toward camera)
       results.poseLandmarks.forEach((lm, i) => {
         const j = joints[i];
         j.visible = lm.visibility > 0.3;
-        // MediaPipe is normalized 0-1, y down. Convert to roughly meters-ish
         j.position.set(
           (lm.x - 0.5) * 3.5,
           (0.5 - lm.y) * 3.5 + 1.2,
@@ -203,7 +249,6 @@
         );
       });
 
-      // update bones
       POSE_CONNECTIONS.forEach((conn, idx) => {
         const a = joints[conn[0]];
         const b = joints[conn[1]];
@@ -224,7 +269,6 @@
         );
       });
 
-      // record frame
       if (recording) {
         const t = (performance.now() - startTime) / 1000;
         recordedFrames.push({
@@ -239,7 +283,6 @@
       }
     });
 
-    // start camera
     async function start() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -250,14 +293,12 @@
         await videoElement.play();
 
         const cam = new Camera(videoElement, {
-          onFrame: async () => {
-            await pose.send({ image: videoElement });
-          },
+          onFrame: async () => { await pose.send({ image: videoElement }); },
           width: 640,
           height: 480
         });
         cam.start();
-        statusEl.textContent = 'Camera ready! Stand so your whole body is visible, then hit Record.';
+        statusEl.textContent = 'Camera ready! Stand so full body is visible, then hit Record.';
       } catch (err) {
         statusEl.textContent = 'Camera error: ' + err.message;
         console.error(err);
@@ -265,7 +306,6 @@
     }
     start();
 
-    // render loop
     function animate() {
       requestAnimationFrame(animate);
       renderer.render(scene, camera);
