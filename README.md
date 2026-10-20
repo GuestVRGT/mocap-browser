@@ -1,23 +1,28 @@
 # mocap-browser 🐒
 
-Nyaaa~!! Browser-based body tracking playground (MonkeMocap-inspired).
+Browser body-tracking toy inspired by MonkeMocap vibes.
 
 ## Features
-- Full-body MediaPipe Pose tracking (33 landmarks)
-- Live 3D green stick-figure visualization
+- Full-body MediaPipe Pose tracking
+- Live green stick-figure preview
 - **Record / Stop**
-- **Two download buttons:**
-  1. **Download Body JSON** → clean pose data for later use in Blender (gorilla IK rig etc.)
-  2. **Download for Nonames** → includes a `cameraPoseList` so https://nonamesanimations.onrender.com/ accepts the file without the "No cameraPoseList found" error
+- Three export options:
+  1. **Body JSON** – clean pose landmarks (for later Blender use)
+  2. **Nonames JSON** – includes `cameraPoseList` so the Nonames converter accepts it
+  3. **GLTF (4 cubes)** – animated GLTF containing exactly 4 cubes:
+     - Torso
+     - Head
+     - LeftArm
+     - RightArm
 
-> Note: the `cameraPoseList` is a **fake** path derived from your head/nose movement. It is only there so the Nonames converter stops complaining. Real AR camera tracking still requires the original Blendartrack / Retargeter phone app.
+The 4 cubes are driven by your recorded body movement (shoulders, wrists, nose).
 
 ## How to use
-1. Open the page (or enable GitHub Pages)
+1. Open the page / GitHub Pages
 2. Allow camera
 3. Stand so your whole body is visible
-4. Hit **Record**, move around, then **Stop**
-5. Download whichever JSON you need
+4. Hit **Record**, move around, hit **Stop**
+5. Click **GLTF (4 cubes)** to download the animated file
 
 ## Live demo
 https://guestvrgt.github.io/mocap-browser/

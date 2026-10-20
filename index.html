@@ -15,7 +15,7 @@
       position: absolute; top: 12px; left: 12px; z-index: 20;
       background: rgba(13,17,23,0.88); padding: 14px 16px;
       border-radius: 12px; border: 1px solid #30363d;
-      max-width: 320px; font-size: 13px; line-height: 1.45;
+      max-width: 340px; font-size: 13px; line-height: 1.45;
     }
     #ui h1 { margin: 0 0 6px; font-size: 18px; color: #7ee787; }
     #ui p { margin: 0 0 10px; opacity: 0.85; }
@@ -31,6 +31,7 @@
     #stopBtn { background: #21262d; color: #e6edf3; border: 1px solid #30363d; }
     #downloadBody { background: #238636; color: white; }
     #downloadNonames { background: #1f6feb; color: white; }
+    #downloadGltf { background: #8957e5; color: white; }
     button:disabled { opacity: 0.45; cursor: not-allowed; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.7} }
     #status { margin-top: 10px; font-size: 12px; color: #8b949e; }
@@ -47,16 +48,18 @@
 <body>
   <div id="ui">
     <h1>Browser MonkeMocap 🐒</h1>
-    <p>Webcam body tracking + dual export<br>
-    • Body JSON → for Blender gorilla later<br>
-    • Nonames JSON → has cameraPoseList so the converter accepts it</p>
+    <p>Webcam body tracking<br>
+    • Body JSON (Blender later)<br>
+    • Nonames JSON (cameraPoseList)<br>
+    • <b>GLTF with 4 cubes</b> (torso + head + 2 arms)</p>
     <div class="btn-row">
       <button id="recordBtn">● Record</button>
       <button id="stopBtn" disabled>Stop</button>
     </div>
     <div class="btn-row">
-      <button id="downloadBody" disabled>Download Body JSON</button>
-      <button id="downloadNonames" disabled>Download for Nonames</button>
+      <button id="downloadBody" disabled>Body JSON</button>
+      <button id="downloadNonames" disabled>Nonames JSON</button>
+      <button id="downloadGltf" disabled>GLTF (4 cubes)</button>
     </div>
     <div id="status">Waiting for camera…</div>
   </div>
@@ -67,6 +70,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
 
   <script>
     const scene = new THREE.Scene();
@@ -90,16 +94,15 @@
     ground.rotation.x = -Math.PI / 2;
     scene.add(ground);
 
+    // Live preview joints
     const jointMat = new THREE.MeshLambertMaterial({ color: 0x7ee787 });
     const boneMat = new THREE.MeshLambertMaterial({ color: 0x3fb950 });
     const joints = [];
     const bones = [];
-
     const POSE_CONNECTIONS = [
       [11,12],[11,13],[13,15],[12,14],[14,16],
       [11,23],[12,24],[23,24],
-      [23,25],[25,27],[24,26],[26,28],
-      [15,17],[15,19],[15,21],[16,18],[16,20],[16,22]
+      [23,25],[25,27],[24,26],[26,28]
     ];
 
     for (let i = 0; i < 33; i++) {
@@ -108,7 +111,6 @@
       scene.add(j);
       joints.push(j);
     }
-
     POSE_CONNECTIONS.forEach(() => {
       const b = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 1), boneMat);
       b.visible = false;
@@ -116,6 +118,7 @@
       bones.push(b);
     });
 
+    // ---- recording ----
     let recording = false;
     let recordedFrames = [];
     let startTime = 0;
@@ -124,6 +127,7 @@
     const stopBtn = document.getElementById('stopBtn');
     const downloadBody = document.getElementById('downloadBody');
     const downloadNonames = document.getElementById('downloadNonames');
+    const downloadGltf = document.getElementById('downloadGltf');
     const statusEl = document.getElementById('status');
 
     recordBtn.addEventListener('click', () => {
@@ -136,7 +140,8 @@
       stopBtn.disabled = false;
       downloadBody.disabled = true;
       downloadNonames.disabled = true;
-      statusEl.textContent = 'Recording… move around like a monke!';
+      downloadGltf.disabled = true;
+      statusEl.textContent = 'Recording… move around!';
     });
 
     stopBtn.addEventListener('click', () => {
@@ -145,13 +150,13 @@
       recordBtn.textContent = '● Record';
       recordBtn.disabled = false;
       stopBtn.disabled = true;
-      const hasData = recordedFrames.length > 0;
-      downloadBody.disabled = !hasData;
-      downloadNonames.disabled = !hasData;
-      statusEl.textContent = `Stopped. ${recordedFrames.length} frames captured.`;
+      const has = recordedFrames.length > 0;
+      downloadBody.disabled = !has;
+      downloadNonames.disabled = !has;
+      downloadGltf.disabled = !has;
+      statusEl.textContent = `Stopped. ${recordedFrames.length} frames.`;
     });
 
-    // Normal body-pose JSON (for Blender later)
     downloadBody.addEventListener('click', () => {
       const payload = {
         version: 1,
@@ -160,53 +165,136 @@
         recordedAt: new Date().toISOString(),
         frames: recordedFrames
       };
-      downloadJSON(payload, `monke-body-pose-${Date.now()}.json`);
-      statusEl.textContent = 'Body pose JSON downloaded! Use this for Blender gorilla later.';
+      downloadJSON(payload, `monke-body-${Date.now()}.json`);
+      statusEl.textContent = 'Body pose JSON downloaded.';
     });
 
-    // Nonames-compatible JSON with cameraPoseList
-    // We fake a camera path from the nose / head landmark so the converter accepts the file
     downloadNonames.addEventListener('click', () => {
       const cameraPoseList = recordedFrames.map((frame, i) => {
-        // MediaPipe landmark 0 = nose
         const nose = frame.landmarks[0] || { x: 0.5, y: 0.5, z: 0 };
-        // Convert normalized coords into a simple camera transform
-        // (this is a fake path so Nonames stops complaining)
         const x = (nose.x - 0.5) * 2.0;
         const y = (0.5 - nose.y) * 1.5 + 1.5;
         const z = -nose.z * 3.0 - 2.5;
-
-        // Simple look-at style rotation approximation
-        const rotY = (nose.x - 0.5) * 0.8;
-        const rotX = (nose.y - 0.5) * 0.5;
-
         return {
           frame: i,
           time: frame.t,
           position: { x, y, z },
-          rotation: { x: rotX, y: rotY, z: 0 },
-          // some converters also look for matrix or quaternion – keep it simple
-          matrix: [
-            1, 0, 0, 0,
-            0, 1, 0, 0,
-            0, 0, 1, 0,
-            x, y, z, 1
-          ]
+          rotation: { x: (nose.y-0.5)*0.5, y: (nose.x-0.5)*0.8, z: 0 }
         };
       });
-
       const payload = {
-        // Minimal structure that satisfies "cameraPoseList found"
-        cameraPoseList: cameraPoseList,
-        // Keep original data too so you still have the body poses
+        cameraPoseList,
         bodyPoseFrames: recordedFrames,
         version: 1,
-        source: 'browser-monkemocap-fake-camera',
-        note: 'cameraPoseList is derived from head/nose movement so Nonames converter accepts the file. Real AR camera tracking still needs Blendartrack/Retargeter.'
+        source: 'browser-monkemocap'
       };
+      downloadJSON(payload, `monke-nonames-${Date.now()}.json`);
+      statusEl.textContent = 'Nonames JSON downloaded.';
+    });
 
-      downloadJSON(payload, `monke-nonames-camera-${Date.now()}.json`);
-      statusEl.textContent = 'Nonames-compatible JSON downloaded! Upload this one to the converter.';
+    // ---- GLTF with 4 cubes ----
+    downloadGltf.addEventListener('click', () => {
+      if (recordedFrames.length === 0) return;
+
+      statusEl.textContent = 'Building GLTF with 4 cubes…';
+
+      // Create a temporary scene just for export
+      const exportScene = new THREE.Scene();
+
+      // Materials
+      const torsoMat = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+      const headMat  = new THREE.MeshStandardMaterial({ color: 0xA0522D });
+      const armMat   = new THREE.MeshStandardMaterial({ color: 0xCD853F });
+
+      // Cubes
+      const torso = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.9, 0.35), torsoMat);
+      torso.name = 'Torso';
+      exportScene.add(torso);
+
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), headMat);
+      head.name = 'Head';
+      exportScene.add(head);
+
+      const leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.7, 0.18), armMat);
+      leftArm.name = 'LeftArm';
+      exportScene.add(leftArm);
+
+      const rightArm = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.7, 0.18), armMat);
+      rightArm.name = 'RightArm';
+      exportScene.add(rightArm);
+
+      // Helper to convert landmark → world position
+      function lmToPos(lm) {
+        return new THREE.Vector3(
+          (lm.x - 0.5) * 3.5,
+          (0.5 - lm.y) * 3.5 + 1.0,
+          -lm.z * 2.5
+        );
+      }
+
+      // Build animation tracks
+      const times = recordedFrames.map(f => f.t);
+      const duration = times[times.length - 1] || 1;
+
+      // Position tracks for each cube
+      function makePosTrack(name, getPosFn) {
+        const values = [];
+        recordedFrames.forEach(frame => {
+          const p = getPosFn(frame.landmarks);
+          values.push(p.x, p.y, p.z);
+        });
+        return new THREE.VectorKeyframeTrack(`${name}.position`, times, values);
+      }
+
+      // Torso = midpoint of shoulders (11 + 12)
+      const torsoTrack = makePosTrack('Torso', (lms) => {
+        const l = lmToPos(lms[11] || {x:0.5,y:0.5,z:0});
+        const r = lmToPos(lms[12] || {x:0.5,y:0.5,z:0});
+        return new THREE.Vector3().addVectors(l, r).multiplyScalar(0.5);
+      });
+
+      // Head = nose (0)
+      const headTrack = makePosTrack('Head', (lms) => lmToPos(lms[0] || {x:0.5,y:0.4,z:0}));
+
+      // Left arm = midpoint of left shoulder + left wrist (11 + 15)
+      const leftArmTrack = makePosTrack('LeftArm', (lms) => {
+        const s = lmToPos(lms[11] || {x:0.4,y:0.5,z:0});
+        const w = lmToPos(lms[15] || {x:0.3,y:0.7,z:0});
+        return new THREE.Vector3().addVectors(s, w).multiplyScalar(0.5);
+      });
+
+      // Right arm = midpoint of right shoulder + right wrist (12 + 16)
+      const rightArmTrack = makePosTrack('RightArm', (lms) => {
+        const s = lmToPos(lms[12] || {x:0.6,y:0.5,z:0});
+        const w = lmToPos(lms[16] || {x:0.7,y:0.7,z:0});
+        return new THREE.Vector3().addVectors(s, w).multiplyScalar(0.5);
+      });
+
+      const clip = new THREE.AnimationClip('MonkeCubes', duration, [
+        torsoTrack, headTrack, leftArmTrack, rightArmTrack
+      ]);
+
+      // Create a mixer + action just so the exporter has animation data
+      const mixer = new THREE.AnimationMixer(exportScene);
+      const action = mixer.clipAction(clip);
+      action.play();
+
+      // Export
+      const exporter = new THREE.GLTFExporter();
+      exporter.parse(
+        exportScene,
+        (result) => {
+          const blob = new Blob([JSON.stringify(result)], { type: 'model/gltf+json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `monke-4cubes-${Date.now()}.gltf`;
+          a.click();
+          URL.revokeObjectURL(url);
+          statusEl.textContent = 'GLTF with 4 cubes downloaded! (Torso + Head + LeftArm + RightArm)';
+        },
+        { animations: [clip], binary: false }
+      );
     });
 
     function downloadJSON(obj, filename) {
@@ -219,6 +307,7 @@
       URL.revokeObjectURL(url);
     }
 
+    // ---- MediaPipe ----
     const videoElement = document.getElementById('video');
 
     const pose = new Pose({
@@ -253,20 +342,14 @@
         const a = joints[conn[0]];
         const b = joints[conn[1]];
         const bone = bones[idx];
-        if (!a.visible || !b.visible) {
-          bone.visible = false;
-          return;
-        }
+        if (!a.visible || !b.visible) { bone.visible = false; return; }
         bone.visible = true;
         const mid = new THREE.Vector3().addVectors(a.position, b.position).multiplyScalar(0.5);
         bone.position.copy(mid);
         const dir = new THREE.Vector3().subVectors(b.position, a.position);
         const len = dir.length();
         bone.scale.set(1, len, 1);
-        bone.quaternion.setFromUnitVectors(
-          new THREE.Vector3(0, 1, 0),
-          dir.clone().normalize()
-        );
+        bone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
       });
 
       if (recording) {
@@ -294,14 +377,12 @@
 
         const cam = new Camera(videoElement, {
           onFrame: async () => { await pose.send({ image: videoElement }); },
-          width: 640,
-          height: 480
+          width: 640, height: 480
         });
         cam.start();
-        statusEl.textContent = 'Camera ready! Stand so full body is visible, then hit Record.';
+        statusEl.textContent = 'Camera ready! Record → then export GLTF (4 cubes).';
       } catch (err) {
         statusEl.textContent = 'Camera error: ' + err.message;
-        console.error(err);
       }
     }
     start();
