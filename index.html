@@ -48,7 +48,7 @@
   <div id="ui">
     <h1>Browser MonkeMocap 🐒</h1>
     <p>Starts in default pose<br>
-    Arms rotate freely • Torso left/right only • Head up/down only<br>
+    Arms free • <b>Hands full 360°</b> • Torso left/right • Head up/down<br>
     + ground clamp</p>
     <div class="btn-row">
       <button id="recordBtn">● Record</button>
@@ -96,16 +96,13 @@
     grid.position.y = 0.01;
     scene.add(grid);
 
-    // Materials
     const torsoMat = new THREE.MeshStandardMaterial({ color: 0x8B4513, roughness: 0.4 });
     const headMat  = new THREE.MeshStandardMaterial({ color: 0xA0522D, roughness: 0.4 });
     const armMat   = new THREE.MeshStandardMaterial({ color: 0xCD853F, roughness: 0.4 });
     const handMat  = new THREE.MeshStandardMaterial({ color: 0xDEB887, roughness: 0.35 });
 
-    // Create cubes with pivot at the top (so they rotate more naturally)
     function makeCube(w, h, d, mat, name) {
       const geo = new THREE.BoxGeometry(w, h, d);
-      // shift geometry so origin is at the top
       geo.translate(0, -h/2, 0);
       const mesh = new THREE.Mesh(geo, mat);
       mesh.name = name;
@@ -124,7 +121,6 @@
     const allCubes = [previewTorso, previewHead, previewUpperL, previewForeL, previewHandL, previewUpperR, previewForeR, previewHandR];
     allCubes.forEach(c => { scene.add(c); c.visible = false; });
 
-    // Default rest positions (T-pose-ish)
     const REST = {
       torso:  new THREE.Vector3(0, 1.55, 0),
       head:   new THREE.Vector3(0, 2.35, 0),
@@ -200,7 +196,6 @@
       statusEl.textContent = 'Nonames JSON downloaded.';
     });
 
-    // ===== Helpers =====
     function lmToPos(lm) {
       return new THREE.Vector3(
         (lm.x - 0.5) * 2.8,
@@ -209,10 +204,22 @@
       );
     }
 
+    // Free lookAt that allows full 360° (no preferred up lock for hands)
+    function freeLookAtQuat(from, to) {
+      const dir = new THREE.Vector3().subVectors(to, from).normalize();
+      if (dir.lengthSq() < 0.0001) return new THREE.Quaternion();
+      const quat = new THREE.Quaternion();
+      // Use a more flexible basis so hands can spin freely in all directions
+      const up = Math.abs(dir.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+      const m = new THREE.Matrix4();
+      m.lookAt(new THREE.Vector3(), dir, up);
+      quat.setFromRotationMatrix(m);
+      return quat;
+    }
+
     function lookAtQuat(from, to) {
       const dir = new THREE.Vector3().subVectors(to, from).normalize();
       const quat = new THREE.Quaternion();
-      // default down is (0,-1,0)
       quat.setFromUnitVectors(new THREE.Vector3(0, -1, 0), dir);
       return quat;
     }
@@ -242,31 +249,29 @@
       const rW = lmToPos(landmarks[16] || {x:0.68,y:0.70,z:0});
       const nose = lmToPos(landmarks[0] || {x:0.50,y:0.28,z:0});
 
-      // Torso position = midpoint of shoulders, lowered
       const torsoPos = new THREE.Vector3().addVectors(lS, rS).multiplyScalar(0.5);
       torsoPos.y -= 0.35;
 
-      // Torso rotation (only Y / left-right)
       const shoulderDir = new THREE.Vector3().subVectors(rS, lS).normalize();
       const torsoYaw = Math.atan2(shoulderDir.x, shoulderDir.z);
       const torsoQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, torsoYaw, 0));
 
-      // Head position + only pitch (up/down)
       const headPos = nose.clone();
       headPos.y += 0.15;
       const neckToHead = new THREE.Vector3().subVectors(headPos, torsoPos).normalize();
       const headPitch = Math.asin(Math.max(-1, Math.min(1, -neckToHead.y))) * 0.7;
       const headQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(headPitch, torsoYaw, 0));
 
-      // Arms - full free rotation using lookAt style
+      // Arms
       const upperLPos = new THREE.Vector3().addVectors(lS, lE).multiplyScalar(0.5);
       const upperLQuat = lookAtQuat(lS, lE);
 
       const foreLPos = new THREE.Vector3().addVectors(lE, lW).multiplyScalar(0.5);
       const foreLQuat = lookAtQuat(lE, lW);
 
+      // Hands - FULL free 360° rotation
       const handLPos = lW.clone();
-      const handLQuat = lookAtQuat(lE, lW);
+      const handLQuat = freeLookAtQuat(lE, lW);
 
       const upperRPos = new THREE.Vector3().addVectors(rS, rE).multiplyScalar(0.5);
       const upperRQuat = lookAtQuat(rS, rE);
@@ -275,7 +280,7 @@
       const foreRQuat = lookAtQuat(rE, rW);
 
       const handRPos = rW.clone();
-      const handRQuat = lookAtQuat(rE, rW);
+      const handRQuat = freeLookAtQuat(rE, rW);
 
       const result = {
         torso: { pos: torsoPos, quat: torsoQuat },
@@ -288,7 +293,6 @@
         handR: { pos: handRPos,  quat: handRQuat }
       };
 
-      // Ground clamp on positions
       const posOnly = {
         torso: result.torso.pos, head: result.head.pos,
         upperL: result.upperL.pos, foreL: result.foreL.pos, handL: result.handL.pos,
@@ -299,7 +303,6 @@
       return result;
     }
 
-    // Apply to live preview
     function updatePreview(pose) {
       previewTorso.position.copy(pose.torso.pos);
       previewTorso.quaternion.copy(pose.torso.quat);
@@ -328,14 +331,12 @@
       allCubes.forEach(c => c.visible = true);
     }
 
-    // ===== GLTF export with rotations =====
     downloadGltf.addEventListener('click', () => {
       if (recordedFrames.length === 0) return;
-      statusEl.textContent = 'Building GLTF with rotations (default start pose)…';
+      statusEl.textContent = 'Building GLTF with full hand rotation…';
 
       const exportScene = new THREE.Scene();
 
-      // Create the same cubes for export
       const torso = makeCube(0.60, 0.95, 0.40, torsoMat.clone(), 'torso');
       const head  = makeCube(0.42, 0.42, 0.42, headMat.clone(), 'head');
       const upperL = makeCube(0.18, 0.50, 0.18, armMat.clone(), 'upper_arm.L');
@@ -347,7 +348,6 @@
 
       [torso, head, upperL, foreL, handL, upperR, foreR, handR].forEach(c => exportScene.add(c));
 
-      // Start with a default pose frame at t=0
       const times = [0, ...recordedFrames.map(f => f.t + 0.05)];
       const duration = times[times.length - 1] || 1;
 
@@ -355,7 +355,6 @@
         const posValues = [];
         const quatValues = [];
 
-        // Frame 0 = default rest pose
         const restPos = REST[name === 'torso' ? 'torso' :
                             name === 'head' ? 'head' :
                             name === 'upper_arm.L' ? 'upperL' :
@@ -364,7 +363,7 @@
                             name === 'upper_arm.R' ? 'upperR' :
                             name === 'forearm.R' ? 'foreR' : 'handR'];
         posValues.push(restPos.x, restPos.y, restPos.z);
-        quatValues.push(0, 0, 0, 1); // identity
+        quatValues.push(0, 0, 0, 1);
 
         recordedFrames.forEach(frame => {
           const pose = computePose(frame.landmarks);
@@ -401,10 +400,10 @@
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
-          a.download = `monke-rotated-${Date.now()}.gltf`;
+          a.download = `monke-hands360-${Date.now()}.gltf`;
           a.click();
           URL.revokeObjectURL(url);
-          statusEl.textContent = 'GLTF downloaded! Starts at default pose + proper rotations.';
+          statusEl.textContent = 'GLTF downloaded! Hands now rotate full 360° in every direction.';
         },
         { animations: [clip], binary: false }
       );
@@ -420,7 +419,6 @@
       URL.revokeObjectURL(url);
     }
 
-    // MediaPipe
     const videoElement = document.getElementById('video');
 
     const pose = new Pose({
@@ -471,7 +469,7 @@
           width: 640, height: 480
         });
         cam.start();
-        statusEl.textContent = 'Camera ready! Cubes start in default pose and rotate properly.';
+        statusEl.textContent = 'Camera ready! Hands now have full 360° rotation.';
       } catch (err) {
         statusEl.textContent = 'Camera error: ' + err.message;
       }
