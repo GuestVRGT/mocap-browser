@@ -56,8 +56,8 @@
 <body>
   <div id="ui">
     <h1>Browser MonkeMocap 🐒</h1>
-    <p>Eyes built into the rig • Mouth can export as video<br>
-    Physics + free hand rotation still active</p>
+    <p>Head fixed (no more sideways) + closer to torso<br>
+    Eyes built-in • Mouth video export</p>
     <div class="toggle-row">
       <label><input type="checkbox" id="eyeToggle" checked> Eye Tracking</label>
       <label><input type="checkbox" id="mouthToggle"> Mouth Tracking</label>
@@ -87,13 +87,12 @@
   <script src="mouths/mouth_frame1.js"></script>
   <script src="mouths/mouth_frame2.js"></script>
   <script src="mouths/mouth_frame3.js"></script>
-  <script src="mouths/mouths-data.js"></script>
 
   <script>
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0d1117);
     const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 100);
-    camera.position.set(0, 2.5, 6.2);
+    camera.position.set(0, 2.2, 5.5);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(innerWidth, innerHeight);
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -123,54 +122,60 @@
 
     function makeCube(w, h, d, mat, name) {
       const geo = new THREE.BoxGeometry(w, h, d);
-      geo.translate(0, -h/2, 0);
+      // pivot at center for head, top for limbs
+      if (name === 'head') {
+        // keep centered
+      } else {
+        geo.translate(0, -h/2, 0);
+      }
       const mesh = new THREE.Mesh(geo, mat);
       mesh.name = name;
       return mesh;
     }
 
-    const previewTorso = makeCube(0.60, 0.95, 0.40, torsoMat, 'torso');
-    const previewHead  = makeCube(0.42, 0.42, 0.42, headMat, 'head');
-    // Eyes built into the head (small spheres)
-    const previewEyeL = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), eyeMat);
+    const previewTorso = makeCube(0.55, 0.90, 0.38, torsoMat, 'torso');
+    const previewHead  = makeCube(0.40, 0.40, 0.40, headMat, 'head');
+
+    // Eyes built into head
+    const previewEyeL = new THREE.Mesh(new THREE.SphereGeometry(0.055, 12, 12), eyeMat);
     previewEyeL.name = 'eye.L';
     previewHead.add(previewEyeL);
-    previewEyeL.position.set(-0.09, -0.12, 0.20);
+    previewEyeL.position.set(-0.09, 0.05, 0.18);
 
-    const previewEyeR = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), eyeMat);
+    const previewEyeR = new THREE.Mesh(new THREE.SphereGeometry(0.055, 12, 12), eyeMat);
     previewEyeR.name = 'eye.R';
     previewHead.add(previewEyeR);
-    previewEyeR.position.set(0.09, -0.12, 0.20);
+    previewEyeR.position.set(0.09, 0.05, 0.18);
 
-    const previewUpperL = makeCube(0.18, 0.50, 0.18, armMat, 'upper_arm.L');
-    const previewForeL  = makeCube(0.16, 0.44, 0.16, armMat, 'forearm.L');
-    const previewHandL  = makeCube(0.24, 0.18, 0.12, handMat, 'hand.L');
-    const previewUpperR = makeCube(0.18, 0.50, 0.18, armMat, 'upper_arm.R');
-    const previewForeR  = makeCube(0.16, 0.44, 0.16, armMat, 'forearm.R');
-    const previewHandR  = makeCube(0.24, 0.18, 0.12, handMat, 'hand.R');
+    const previewUpperL = makeCube(0.17, 0.48, 0.17, armMat, 'upper_arm.L');
+    const previewForeL  = makeCube(0.15, 0.42, 0.15, armMat, 'forearm.L');
+    const previewHandL  = makeCube(0.22, 0.16, 0.12, handMat, 'hand.L');
+    const previewUpperR = makeCube(0.17, 0.48, 0.17, armMat, 'upper_arm.R');
+    const previewForeR  = makeCube(0.15, 0.42, 0.15, armMat, 'forearm.R');
+    const previewHandR  = makeCube(0.22, 0.16, 0.12, handMat, 'hand.R');
 
     const allCubes = [previewTorso, previewHead, previewUpperL, previewForeL, previewHandL, previewUpperR, previewForeR, previewHandR];
     allCubes.forEach(c => { scene.add(c); c.visible = false; });
 
-    // Simple physics state
+    // Physics - lighter so it doesn't lock
     let bodyOffset = new THREE.Vector3();
     let bodyVelocity = new THREE.Vector3();
     let lastHandCenter = null;
 
     const REST = {
-      torso:  new THREE.Vector3(0, 1.55, 0),
-      head:   new THREE.Vector3(0, 2.35, 0),
-      upperL: new THREE.Vector3(-0.55, 1.85, 0),
-      foreL:  new THREE.Vector3(-0.95, 1.55, 0),
-      handL:  new THREE.Vector3(-1.25, 1.30, 0),
-      upperR: new THREE.Vector3( 0.55, 1.85, 0),
-      foreR:  new THREE.Vector3( 0.95, 1.55, 0),
-      handR:  new THREE.Vector3( 1.25, 1.30, 0)
+      torso:  new THREE.Vector3(0, 1.40, 0),
+      head:   new THREE.Vector3(0, 2.05, 0),
+      upperL: new THREE.Vector3(-0.50, 1.70, 0),
+      foreL:  new THREE.Vector3(-0.85, 1.40, 0),
+      handL:  new THREE.Vector3(-1.10, 1.15, 0),
+      upperR: new THREE.Vector3( 0.50, 1.70, 0),
+      foreR:  new THREE.Vector3( 0.85, 1.40, 0),
+      handR:  new THREE.Vector3( 1.10, 1.15, 0)
     };
 
     let recording = false;
     let recordedFrames = [];
-    let mouthFrames = []; // indices 0-3 for video export
+    let mouthFrames = [];
     let startTime = 0;
 
     const recordBtn = document.getElementById('recordBtn');
@@ -247,7 +252,6 @@
       statusEl.textContent = 'Nonames JSON downloaded.';
     });
 
-    // Mouth video export using canvas + MediaRecorder
     downloadMouthVideo.addEventListener('click', async () => {
       if (mouthFrames.length === 0) return;
       statusEl.textContent = 'Building mouth video…';
@@ -294,9 +298,9 @@
 
     function lmToPos(lm) {
       return new THREE.Vector3(
-        (lm.x - 0.5) * 2.8,
-        (0.5 - lm.y) * 2.8 + 0.3,
-        -lm.z * 1.8
+        (lm.x - 0.5) * 2.6,
+        (0.5 - lm.y) * 2.6 + 0.4,
+        -lm.z * 1.6
       );
     }
 
@@ -320,13 +324,13 @@
 
     function applyGroundClamp(pos) {
       const bottoms = [
-        pos.upperL.y - 0.25, pos.foreL.y - 0.22, pos.handL.y - 0.09,
-        pos.upperR.y - 0.25, pos.foreR.y - 0.22, pos.handR.y - 0.09
+        pos.upperL.y - 0.24, pos.foreL.y - 0.21, pos.handL.y - 0.08,
+        pos.upperR.y - 0.24, pos.foreR.y - 0.21, pos.handR.y - 0.08
       ];
       let lift = 0;
       const lowest = Math.min(...bottoms);
       if (lowest < 0) lift = -lowest;
-      const torsoBottom = pos.torso.y - 0.48;
+      const torsoBottom = pos.torso.y - 0.45;
       if (torsoBottom + lift < 0.05) lift = Math.max(lift, -torsoBottom + 0.05);
       Object.keys(pos).forEach(k => { if (pos[k].isVector3) pos[k].y += lift; });
       return lift;
@@ -341,30 +345,42 @@
       const rW = lmToPos(landmarks[16] || {x:0.68,y:0.70,z:0});
       const nose = lmToPos(landmarks[0] || {x:0.50,y:0.28,z:0});
 
-      // Simple physics: average hand movement drives body offset
+      // Lighter physics so it doesn't lock at origin
       const handCenter = new THREE.Vector3().addVectors(lW, rW).multiplyScalar(0.5);
       if (lastHandCenter) {
         const delta = new THREE.Vector3().subVectors(handCenter, lastHandCenter);
-        bodyVelocity.add(delta.multiplyScalar(0.35));
+        bodyVelocity.add(delta.multiplyScalar(0.15)); // much lighter
       }
       lastHandCenter = handCenter.clone();
-      bodyVelocity.multiplyScalar(0.92); // damping
+      bodyVelocity.multiplyScalar(0.88);
       bodyOffset.add(bodyVelocity.clone().multiplyScalar(0.016));
+      // soft limit so it doesn't fly away
+      bodyOffset.x = Math.max(-1.5, Math.min(1.5, bodyOffset.x));
+      bodyOffset.z = Math.max(-1.5, Math.min(1.5, bodyOffset.z));
+      bodyOffset.y = Math.max(-0.3, Math.min(0.8, bodyOffset.y));
 
+      // Torso = center of shoulders, lowered a bit
       const torsoPos = new THREE.Vector3().addVectors(lS, rS).multiplyScalar(0.5);
-      torsoPos.y -= 0.35;
+      torsoPos.y -= 0.25;
       torsoPos.add(bodyOffset);
 
+      // Only yaw for torso
       const shoulderDir = new THREE.Vector3().subVectors(rS, lS).normalize();
       const torsoYaw = Math.atan2(shoulderDir.x, shoulderDir.z);
       const torsoQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, torsoYaw, 0));
 
-      const headPos = nose.clone().add(bodyOffset);
-      headPos.y += 0.15;
-      const neckToHead = new THREE.Vector3().subVectors(headPos, torsoPos).normalize();
-      const headPitch = Math.asin(Math.max(-1, Math.min(1, -neckToHead.y))) * 0.7;
+      // HEAD - much closer and NO sideways rotation
+      // Place head just above the shoulder midpoint
+      const headPos = new THREE.Vector3().addVectors(lS, rS).multiplyScalar(0.5);
+      headPos.y += 0.38;          // sit right on top of torso
+      headPos.add(bodyOffset);
+
+      // Head only follows torso yaw + slight pitch from nose height
+      const noseRelY = nose.y - (torsoPos.y + 0.5);
+      const headPitch = Math.max(-0.6, Math.min(0.6, -noseRelY * 1.2));
       const headQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(headPitch, torsoYaw, 0));
 
+      // Arms
       const upperLPos = new THREE.Vector3().addVectors(lS, lE).multiplyScalar(0.5).add(bodyOffset);
       const upperLQuat = lookAtQuat(lS, lE);
       const foreLPos = new THREE.Vector3().addVectors(lE, lW).multiplyScalar(0.5).add(bodyOffset);
@@ -417,48 +433,43 @@
       previewHandR.position.copy(pose.handR.pos);
       previewHandR.quaternion.copy(pose.handR.quat);
 
-      // Eyes visibility
       previewEyeL.visible = eyeToggle.checked;
       previewEyeR.visible = eyeToggle.checked;
 
       allCubes.forEach(c => c.visible = true);
     }
 
-    // Simple mouth open amount from face (using nose-to-chin proxy via Pose for now)
     function estimateMouthOpen(landmarks) {
-      // Very rough: use relative y of nose vs average of shoulders as proxy
-      // Real face mesh would be better, but this keeps it lightweight
       const nose = landmarks[0];
       const lS = landmarks[11];
       const rS = landmarks[12];
       if (!nose || !lS || !rS) return 0;
       const midY = (lS.y + rS.y) * 0.5;
-      const open = Math.max(0, Math.min(1, (nose.y - midY - 0.12) * 8));
-      return open;
+      return Math.max(0, Math.min(1, (nose.y - midY - 0.12) * 8));
     }
 
     downloadGltf.addEventListener('click', () => {
       if (recordedFrames.length === 0) return;
-      statusEl.textContent = 'Building GLTF with eyes built-in…';
+      statusEl.textContent = 'Building GLTF with fixed head + eyes…';
 
       const exportScene = new THREE.Scene();
-      const torso = makeCube(0.60, 0.95, 0.40, torsoMat.clone(), 'torso');
-      const head  = makeCube(0.42, 0.42, 0.42, headMat.clone(), 'head');
-      const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), eyeMat.clone());
+      const torso = makeCube(0.55, 0.90, 0.38, torsoMat.clone(), 'torso');
+      const head  = makeCube(0.40, 0.40, 0.40, headMat.clone(), 'head');
+      const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.055, 12, 12), eyeMat.clone());
       eyeL.name = 'eye.L';
       head.add(eyeL);
-      eyeL.position.set(-0.09, -0.12, 0.20);
-      const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), eyeMat.clone());
+      eyeL.position.set(-0.09, 0.05, 0.18);
+      const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.055, 12, 12), eyeMat.clone());
       eyeR.name = 'eye.R';
       head.add(eyeR);
-      eyeR.position.set(0.09, -0.12, 0.20);
+      eyeR.position.set(0.09, 0.05, 0.18);
 
-      const upperL = makeCube(0.18, 0.50, 0.18, armMat.clone(), 'upper_arm.L');
-      const foreL  = makeCube(0.16, 0.44, 0.16, armMat.clone(), 'forearm.L');
-      const handL  = makeCube(0.24, 0.18, 0.12, handMat.clone(), 'hand.L');
-      const upperR = makeCube(0.18, 0.50, 0.18, armMat.clone(), 'upper_arm.R');
-      const foreR  = makeCube(0.16, 0.44, 0.16, armMat.clone(), 'forearm.R');
-      const handR  = makeCube(0.24, 0.18, 0.12, handMat.clone(), 'hand.R');
+      const upperL = makeCube(0.17, 0.48, 0.17, armMat.clone(), 'upper_arm.L');
+      const foreL  = makeCube(0.15, 0.42, 0.15, armMat.clone(), 'forearm.L');
+      const handL  = makeCube(0.22, 0.16, 0.12, handMat.clone(), 'hand.L');
+      const upperR = makeCube(0.17, 0.48, 0.17, armMat.clone(), 'upper_arm.R');
+      const foreR  = makeCube(0.15, 0.42, 0.15, armMat.clone(), 'forearm.R');
+      const handR  = makeCube(0.22, 0.16, 0.12, handMat.clone(), 'hand.R');
 
       [torso, head, upperL, foreL, handL, upperR, foreR, handR].forEach(c => exportScene.add(c));
 
@@ -505,10 +516,10 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `monke-with-eyes-${Date.now()}.gltf`;
+        a.download = `monke-fixed-head-${Date.now()}.gltf`;
         a.click();
         URL.revokeObjectURL(url);
-        statusEl.textContent = 'GLTF downloaded! Eyes are built into the head.';
+        statusEl.textContent = 'GLTF downloaded! Head is now upright and closer.';
       }, { animations: [clip], binary: false });
     });
 
@@ -543,7 +554,6 @@
       const p = computePose(results.poseLandmarks);
       updatePreview(p);
 
-      // Mouth tracking (simple open amount → frame index)
       if (mouthToggle.checked) {
         mouthPreview.style.display = 'block';
         const open = estimateMouthOpen(results.poseLandmarks);
@@ -582,7 +592,7 @@
           width: 640, height: 480
         });
         cam.start();
-        statusEl.textContent = 'Camera ready! Eyes are on the head. Toggle mouth for video export.';
+        statusEl.textContent = 'Camera ready! Head should now be upright and closer to the body.';
       } catch (err) {
         statusEl.textContent = 'Camera error: ' + err.message;
       }
