@@ -13,12 +13,12 @@
     }
     #ui {
       position: absolute; top: 12px; left: 12px; z-index: 20;
-      background: rgba(13,17,23,0.93); padding: 14px 16px;
+      background: rgba(13,17,23,0.94); padding: 14px 16px;
       border-radius: 12px; border: 1px solid #30363d;
-      max-width: 380px; font-size: 13px; line-height: 1.45;
+      max-width: 400px; font-size: 13px; line-height: 1.45;
     }
     #ui h1 { margin: 0 0 6px; font-size: 18px; color: #7ee787; }
-    #ui p { margin: 0 0 10px; opacity: 0.85; }
+    #ui p { margin: 0 0 8px; opacity: 0.85; }
     .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
     button {
       padding: 8px 12px; border: none; border-radius: 8px;
@@ -31,7 +31,10 @@
     #downloadBody { background: #238636; color: white; }
     #downloadNonames { background: #1f6feb; color: white; }
     #downloadGltf { background: #8957e5; color: white; }
+    #downloadMouthVideo { background: #db6d28; color: white; }
     button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .toggle-row { margin-top: 10px; display: flex; gap: 14px; flex-wrap: wrap; }
+    .toggle-row label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.7} }
     #status { margin-top: 10px; font-size: 12px; color: #8b949e; }
     #video {
@@ -40,6 +43,12 @@
       border-radius: 10px; z-index: 10; transform: scaleX(-1);
       object-fit: cover; background: #000;
     }
+    #mouthPreview {
+      position: absolute; bottom: 140px; right: 12px;
+      width: 120px; height: 70px; border: 2px solid #30363d;
+      border-radius: 10px; z-index: 10; background: #000;
+      display: none; object-fit: contain;
+    }
     #canvas-container { width: 100vw; height: 100vh; }
     canvas { display: block; }
   </style>
@@ -47,9 +56,12 @@
 <body>
   <div id="ui">
     <h1>Browser MonkeMocap 🐒</h1>
-    <p>Starts in default pose<br>
-    Arms free • <b>Hands full 360°</b> • Torso left/right • Head up/down<br>
-    + ground clamp</p>
+    <p>Eyes built into the rig • Mouth can export as video<br>
+    Physics + free hand rotation still active</p>
+    <div class="toggle-row">
+      <label><input type="checkbox" id="eyeToggle" checked> Eye Tracking</label>
+      <label><input type="checkbox" id="mouthToggle"> Mouth Tracking</label>
+    </div>
     <div class="btn-row">
       <button id="recordBtn">● Record</button>
       <button id="stopBtn" disabled>Stop</button>
@@ -57,18 +69,25 @@
     <div class="btn-row">
       <button id="downloadBody" disabled>Body JSON</button>
       <button id="downloadNonames" disabled>Nonames JSON</button>
-      <button id="downloadGltf" disabled>GLTF (cubes)</button>
+      <button id="downloadGltf" disabled>GLTF (with eyes)</button>
+      <button id="downloadMouthVideo" disabled>Mouth Video</button>
     </div>
     <div id="status">Waiting for camera…</div>
   </div>
 
   <video id="video" playsinline muted></video>
+  <img id="mouthPreview" alt="mouth">
   <div id="canvas-container"></div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
+  <script src="mouths/mouth_frame0.js"></script>
+  <script src="mouths/mouth_frame1.js"></script>
+  <script src="mouths/mouth_frame2.js"></script>
+  <script src="mouths/mouth_frame3.js"></script>
+  <script src="mouths/mouths-data.js"></script>
 
   <script>
     const scene = new THREE.Scene();
@@ -100,6 +119,7 @@
     const headMat  = new THREE.MeshStandardMaterial({ color: 0xA0522D, roughness: 0.4 });
     const armMat   = new THREE.MeshStandardMaterial({ color: 0xCD853F, roughness: 0.4 });
     const handMat  = new THREE.MeshStandardMaterial({ color: 0xDEB887, roughness: 0.35 });
+    const eyeMat   = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.2 });
 
     function makeCube(w, h, d, mat, name) {
       const geo = new THREE.BoxGeometry(w, h, d);
@@ -111,6 +131,17 @@
 
     const previewTorso = makeCube(0.60, 0.95, 0.40, torsoMat, 'torso');
     const previewHead  = makeCube(0.42, 0.42, 0.42, headMat, 'head');
+    // Eyes built into the head (small spheres)
+    const previewEyeL = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), eyeMat);
+    previewEyeL.name = 'eye.L';
+    previewHead.add(previewEyeL);
+    previewEyeL.position.set(-0.09, -0.12, 0.20);
+
+    const previewEyeR = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), eyeMat);
+    previewEyeR.name = 'eye.R';
+    previewHead.add(previewEyeR);
+    previewEyeR.position.set(0.09, -0.12, 0.20);
+
     const previewUpperL = makeCube(0.18, 0.50, 0.18, armMat, 'upper_arm.L');
     const previewForeL  = makeCube(0.16, 0.44, 0.16, armMat, 'forearm.L');
     const previewHandL  = makeCube(0.24, 0.18, 0.12, handMat, 'hand.L');
@@ -120,6 +151,11 @@
 
     const allCubes = [previewTorso, previewHead, previewUpperL, previewForeL, previewHandL, previewUpperR, previewForeR, previewHandR];
     allCubes.forEach(c => { scene.add(c); c.visible = false; });
+
+    // Simple physics state
+    let bodyOffset = new THREE.Vector3();
+    let bodyVelocity = new THREE.Vector3();
+    let lastHandCenter = null;
 
     const REST = {
       torso:  new THREE.Vector3(0, 1.55, 0),
@@ -134,6 +170,7 @@
 
     let recording = false;
     let recordedFrames = [];
+    let mouthFrames = []; // indices 0-3 for video export
     let startTime = 0;
 
     const recordBtn = document.getElementById('recordBtn');
@@ -141,12 +178,27 @@
     const downloadBody = document.getElementById('downloadBody');
     const downloadNonames = document.getElementById('downloadNonames');
     const downloadGltf = document.getElementById('downloadGltf');
+    const downloadMouthVideo = document.getElementById('downloadMouthVideo');
     const statusEl = document.getElementById('status');
+    const eyeToggle = document.getElementById('eyeToggle');
+    const mouthToggle = document.getElementById('mouthToggle');
+    const mouthPreview = document.getElementById('mouthPreview');
+
+    const MOUTH_IMGS = [
+      window.MOUTH_FRAME_0,
+      window.MOUTH_FRAME_1,
+      window.MOUTH_FRAME_2,
+      window.MOUTH_FRAME_3
+    ];
 
     recordBtn.addEventListener('click', () => {
       recording = true;
       recordedFrames = [];
+      mouthFrames = [];
       startTime = performance.now();
+      bodyOffset.set(0,0,0);
+      bodyVelocity.set(0,0,0);
+      lastHandCenter = null;
       recordBtn.classList.add('recording');
       recordBtn.textContent = '● Recording…';
       recordBtn.disabled = true;
@@ -154,6 +206,7 @@
       downloadBody.disabled = true;
       downloadNonames.disabled = true;
       downloadGltf.disabled = true;
+      downloadMouthVideo.disabled = true;
       statusEl.textContent = 'Recording… move around!';
     });
 
@@ -167,18 +220,17 @@
       downloadBody.disabled = !has;
       downloadNonames.disabled = !has;
       downloadGltf.disabled = !has;
+      downloadMouthVideo.disabled = !has || mouthFrames.length === 0;
       statusEl.textContent = `Stopped. ${recordedFrames.length} frames.`;
     });
 
     downloadBody.addEventListener('click', () => {
-      const payload = {
+      downloadJSON({
         version: 1,
         type: 'mediapipe-pose',
         frameCount: recordedFrames.length,
-        recordedAt: new Date().toISOString(),
         frames: recordedFrames
-      };
-      downloadJSON(payload, `monke-body-${Date.now()}.json`);
+      }, `monke-body-${Date.now()}.json`);
       statusEl.textContent = 'Body pose JSON downloaded.';
     });
 
@@ -186,14 +238,58 @@
       const cameraPoseList = recordedFrames.map((frame, i) => {
         const nose = frame.landmarks[0] || { x: 0.5, y: 0.5, z: 0 };
         return {
-          frame: i,
-          time: frame.t,
+          frame: i, time: frame.t,
           position: { x: (nose.x-0.5)*2, y: (0.5-nose.y)*1.5+1.5, z: -nose.z*3-2.5 },
           rotation: { x: (nose.y-0.5)*0.5, y: (nose.x-0.5)*0.8, z: 0 }
         };
       });
       downloadJSON({ cameraPoseList, bodyPoseFrames: recordedFrames, version: 1 }, `monke-nonames-${Date.now()}.json`);
       statusEl.textContent = 'Nonames JSON downloaded.';
+    });
+
+    // Mouth video export using canvas + MediaRecorder
+    downloadMouthVideo.addEventListener('click', async () => {
+      if (mouthFrames.length === 0) return;
+      statusEl.textContent = 'Building mouth video…';
+
+      const canvas = document.createElement('canvas');
+      canvas.width = 256;
+      canvas.height = 128;
+      const ctx = canvas.getContext('2d');
+
+      const stream = canvas.captureStream(30);
+      const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9' });
+      const chunks = [];
+      recorder.ondataavailable = e => chunks.push(e.data);
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: 'video/webm' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `monke-mouth-${Date.now()}.webm`;
+        a.click();
+        URL.revokeObjectURL(url);
+        statusEl.textContent = 'Mouth video downloaded!';
+      };
+
+      recorder.start();
+      let i = 0;
+      const fps = 12;
+      const interval = setInterval(() => {
+        if (i >= mouthFrames.length) {
+          clearInterval(interval);
+          recorder.stop();
+          return;
+        }
+        const img = new Image();
+        img.onload = () => {
+          ctx.fillStyle = '#000';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        };
+        img.src = MOUTH_IMGS[mouthFrames[i]];
+        i++;
+      }, 1000 / fps);
     });
 
     function lmToPos(lm) {
@@ -204,12 +300,10 @@
       );
     }
 
-    // Free lookAt that allows full 360° (no preferred up lock for hands)
     function freeLookAtQuat(from, to) {
       const dir = new THREE.Vector3().subVectors(to, from).normalize();
       if (dir.lengthSq() < 0.0001) return new THREE.Quaternion();
       const quat = new THREE.Quaternion();
-      // Use a more flexible basis so hands can spin freely in all directions
       const up = Math.abs(dir.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
       const m = new THREE.Matrix4();
       m.lookAt(new THREE.Vector3(), dir, up);
@@ -232,10 +326,8 @@
       let lift = 0;
       const lowest = Math.min(...bottoms);
       if (lowest < 0) lift = -lowest;
-
       const torsoBottom = pos.torso.y - 0.48;
       if (torsoBottom + lift < 0.05) lift = Math.max(lift, -torsoBottom + 0.05);
-
       Object.keys(pos).forEach(k => { if (pos[k].isVector3) pos[k].y += lift; });
       return lift;
     }
@@ -249,37 +341,42 @@
       const rW = lmToPos(landmarks[16] || {x:0.68,y:0.70,z:0});
       const nose = lmToPos(landmarks[0] || {x:0.50,y:0.28,z:0});
 
+      // Simple physics: average hand movement drives body offset
+      const handCenter = new THREE.Vector3().addVectors(lW, rW).multiplyScalar(0.5);
+      if (lastHandCenter) {
+        const delta = new THREE.Vector3().subVectors(handCenter, lastHandCenter);
+        bodyVelocity.add(delta.multiplyScalar(0.35));
+      }
+      lastHandCenter = handCenter.clone();
+      bodyVelocity.multiplyScalar(0.92); // damping
+      bodyOffset.add(bodyVelocity.clone().multiplyScalar(0.016));
+
       const torsoPos = new THREE.Vector3().addVectors(lS, rS).multiplyScalar(0.5);
       torsoPos.y -= 0.35;
+      torsoPos.add(bodyOffset);
 
       const shoulderDir = new THREE.Vector3().subVectors(rS, lS).normalize();
       const torsoYaw = Math.atan2(shoulderDir.x, shoulderDir.z);
       const torsoQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, torsoYaw, 0));
 
-      const headPos = nose.clone();
+      const headPos = nose.clone().add(bodyOffset);
       headPos.y += 0.15;
       const neckToHead = new THREE.Vector3().subVectors(headPos, torsoPos).normalize();
       const headPitch = Math.asin(Math.max(-1, Math.min(1, -neckToHead.y))) * 0.7;
       const headQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(headPitch, torsoYaw, 0));
 
-      // Arms
-      const upperLPos = new THREE.Vector3().addVectors(lS, lE).multiplyScalar(0.5);
+      const upperLPos = new THREE.Vector3().addVectors(lS, lE).multiplyScalar(0.5).add(bodyOffset);
       const upperLQuat = lookAtQuat(lS, lE);
-
-      const foreLPos = new THREE.Vector3().addVectors(lE, lW).multiplyScalar(0.5);
+      const foreLPos = new THREE.Vector3().addVectors(lE, lW).multiplyScalar(0.5).add(bodyOffset);
       const foreLQuat = lookAtQuat(lE, lW);
-
-      // Hands - FULL free 360° rotation
-      const handLPos = lW.clone();
+      const handLPos = lW.clone().add(bodyOffset);
       const handLQuat = freeLookAtQuat(lE, lW);
 
-      const upperRPos = new THREE.Vector3().addVectors(rS, rE).multiplyScalar(0.5);
+      const upperRPos = new THREE.Vector3().addVectors(rS, rE).multiplyScalar(0.5).add(bodyOffset);
       const upperRQuat = lookAtQuat(rS, rE);
-
-      const foreRPos = new THREE.Vector3().addVectors(rE, rW).multiplyScalar(0.5);
+      const foreRPos = new THREE.Vector3().addVectors(rE, rW).multiplyScalar(0.5).add(bodyOffset);
       const foreRQuat = lookAtQuat(rE, rW);
-
-      const handRPos = rW.clone();
+      const handRPos = rW.clone().add(bodyOffset);
       const handRQuat = freeLookAtQuat(rE, rW);
 
       const result = {
@@ -299,46 +396,63 @@
         upperR: result.upperR.pos, foreR: result.foreR.pos, handR: result.handR.pos
       };
       applyGroundClamp(posOnly);
-
       return result;
     }
 
     function updatePreview(pose) {
       previewTorso.position.copy(pose.torso.pos);
       previewTorso.quaternion.copy(pose.torso.quat);
-
       previewHead.position.copy(pose.head.pos);
       previewHead.quaternion.copy(pose.head.quat);
-
       previewUpperL.position.copy(pose.upperL.pos);
       previewUpperL.quaternion.copy(pose.upperL.quat);
-
       previewForeL.position.copy(pose.foreL.pos);
       previewForeL.quaternion.copy(pose.foreL.quat);
-
       previewHandL.position.copy(pose.handL.pos);
       previewHandL.quaternion.copy(pose.handL.quat);
-
       previewUpperR.position.copy(pose.upperR.pos);
       previewUpperR.quaternion.copy(pose.upperR.quat);
-
       previewForeR.position.copy(pose.foreR.pos);
       previewForeR.quaternion.copy(pose.foreR.quat);
-
       previewHandR.position.copy(pose.handR.pos);
       previewHandR.quaternion.copy(pose.handR.quat);
+
+      // Eyes visibility
+      previewEyeL.visible = eyeToggle.checked;
+      previewEyeR.visible = eyeToggle.checked;
 
       allCubes.forEach(c => c.visible = true);
     }
 
+    // Simple mouth open amount from face (using nose-to-chin proxy via Pose for now)
+    function estimateMouthOpen(landmarks) {
+      // Very rough: use relative y of nose vs average of shoulders as proxy
+      // Real face mesh would be better, but this keeps it lightweight
+      const nose = landmarks[0];
+      const lS = landmarks[11];
+      const rS = landmarks[12];
+      if (!nose || !lS || !rS) return 0;
+      const midY = (lS.y + rS.y) * 0.5;
+      const open = Math.max(0, Math.min(1, (nose.y - midY - 0.12) * 8));
+      return open;
+    }
+
     downloadGltf.addEventListener('click', () => {
       if (recordedFrames.length === 0) return;
-      statusEl.textContent = 'Building GLTF with full hand rotation…';
+      statusEl.textContent = 'Building GLTF with eyes built-in…';
 
       const exportScene = new THREE.Scene();
-
       const torso = makeCube(0.60, 0.95, 0.40, torsoMat.clone(), 'torso');
       const head  = makeCube(0.42, 0.42, 0.42, headMat.clone(), 'head');
+      const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), eyeMat.clone());
+      eyeL.name = 'eye.L';
+      head.add(eyeL);
+      eyeL.position.set(-0.09, -0.12, 0.20);
+      const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), eyeMat.clone());
+      eyeR.name = 'eye.R';
+      head.add(eyeR);
+      eyeR.position.set(0.09, -0.12, 0.20);
+
       const upperL = makeCube(0.18, 0.50, 0.18, armMat.clone(), 'upper_arm.L');
       const foreL  = makeCube(0.16, 0.44, 0.16, armMat.clone(), 'forearm.L');
       const handL  = makeCube(0.24, 0.18, 0.12, handMat.clone(), 'hand.L');
@@ -354,17 +468,12 @@
       function makeTracks(name, getterPos, getterQuat) {
         const posValues = [];
         const quatValues = [];
-
-        const restPos = REST[name === 'torso' ? 'torso' :
-                            name === 'head' ? 'head' :
-                            name === 'upper_arm.L' ? 'upperL' :
-                            name === 'forearm.L' ? 'foreL' :
-                            name === 'hand.L' ? 'handL' :
-                            name === 'upper_arm.R' ? 'upperR' :
+        const restPos = REST[name === 'torso' ? 'torso' : name === 'head' ? 'head' :
+                            name === 'upper_arm.L' ? 'upperL' : name === 'forearm.L' ? 'foreL' :
+                            name === 'hand.L' ? 'handL' : name === 'upper_arm.R' ? 'upperR' :
                             name === 'forearm.R' ? 'foreR' : 'handR'];
         posValues.push(restPos.x, restPos.y, restPos.z);
         quatValues.push(0, 0, 0, 1);
-
         recordedFrames.forEach(frame => {
           const pose = computePose(frame.landmarks);
           const p = getterPos(pose);
@@ -372,7 +481,6 @@
           posValues.push(p.x, p.y, p.z);
           quatValues.push(q.x, q.y, q.z, q.w);
         });
-
         return [
           new THREE.VectorKeyframeTrack(name + '.position', times, posValues),
           new THREE.QuaternionKeyframeTrack(name + '.quaternion', times, quatValues)
@@ -391,22 +499,17 @@
       ];
 
       const clip = new THREE.AnimationClip('MonkeRotations', duration, tracks);
-
       const exporter = new THREE.GLTFExporter();
-      exporter.parse(
-        exportScene,
-        (result) => {
-          const blob = new Blob([JSON.stringify(result)], { type: 'model/gltf+json' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `monke-hands360-${Date.now()}.gltf`;
-          a.click();
-          URL.revokeObjectURL(url);
-          statusEl.textContent = 'GLTF downloaded! Hands now rotate full 360° in every direction.';
-        },
-        { animations: [clip], binary: false }
-      );
+      exporter.parse(exportScene, (result) => {
+        const blob = new Blob([JSON.stringify(result)], { type: 'model/gltf+json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `monke-with-eyes-${Date.now()}.gltf`;
+        a.click();
+        URL.revokeObjectURL(url);
+        statusEl.textContent = 'GLTF downloaded! Eyes are built into the head.';
+      }, { animations: [clip], binary: false });
     });
 
     function downloadJSON(obj, filename) {
@@ -420,7 +523,6 @@
     }
 
     const videoElement = document.getElementById('video');
-
     const pose = new Pose({
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
     });
@@ -440,6 +542,17 @@
 
       const p = computePose(results.poseLandmarks);
       updatePreview(p);
+
+      // Mouth tracking (simple open amount → frame index)
+      if (mouthToggle.checked) {
+        mouthPreview.style.display = 'block';
+        const open = estimateMouthOpen(results.poseLandmarks);
+        const frameIdx = Math.min(3, Math.floor(open * 4));
+        mouthPreview.src = MOUTH_IMGS[frameIdx];
+        if (recording) mouthFrames.push(frameIdx);
+      } else {
+        mouthPreview.style.display = 'none';
+      }
 
       if (recording) {
         const t = (performance.now() - startTime) / 1000;
@@ -469,7 +582,7 @@
           width: 640, height: 480
         });
         cam.start();
-        statusEl.textContent = 'Camera ready! Hands now have full 360° rotation.';
+        statusEl.textContent = 'Camera ready! Eyes are on the head. Toggle mouth for video export.';
       } catch (err) {
         statusEl.textContent = 'Camera error: ' + err.message;
       }
