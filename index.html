@@ -13,15 +13,15 @@
     }
     #ui {
       position: absolute; top: 12px; left: 12px; z-index: 20;
-      background: rgba(13,17,23,0.94); padding: 14px 16px;
+      background: rgba(13,17,23,0.95); padding: 14px 16px;
       border-radius: 12px; border: 1px solid #30363d;
-      max-width: 340px; font-size: 13px; line-height: 1.45;
+      max-width: 360px; font-size: 13px; line-height: 1.4;
     }
-    #ui h1 { margin: 0 0 6px; font-size: 18px; color: #7ee787; }
-    #ui p { margin: 0 0 8px; opacity: 0.85; }
-    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    #ui h1 { margin: 0 0 4px; font-size: 17px; color: #7ee787; }
+    #ui p { margin: 0 0 8px; opacity: 0.85; font-size: 12px; }
+    .btn-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
     button {
-      padding: 8px 12px; border: none; border-radius: 8px;
+      padding: 7px 11px; border: none; border-radius: 7px;
       font-weight: 600; font-size: 12px; cursor: pointer;
     }
     button:active { transform: scale(0.96); }
@@ -31,18 +31,24 @@
     #downloadGltf { background: #8957e5; color: white; }
     #addPartBtn { background: #c47a3a; color: white; }
     #resetPosBtn { background: #444; color: white; }
+    .mode-btn { background: #30363d; color: #ccc; }
+    .mode-btn.active { background: #238636; color: white; }
     button:disabled { opacity: 0.45; cursor: not-allowed; }
     #partsList {
-      margin-top: 10px; max-height: 100px; overflow-y: auto;
-      background: #161b22; border-radius: 6px; padding: 6px; font-size: 12px;
+      margin-top: 8px; max-height: 110px; overflow-y: auto;
+      background: #161b22; border-radius: 6px; padding: 5px; font-size: 12px;
     }
-    #partsList div { padding: 3px 0; display: flex; justify-content: space-between; align-items: center; }
+    #partsList .row {
+      padding: 4px 2px; display: flex; justify-content: space-between; align-items: center;
+      border-radius: 4px; cursor: pointer;
+    }
+    #partsList .row.selected { background: #30363d; }
     #partsList button { padding: 2px 6px; font-size: 11px; background: #333; color: #ccc; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.7} }
-    #status { margin-top: 10px; font-size: 12px; color: #8b949e; }
+    #status { margin-top: 8px; font-size: 12px; color: #8b949e; }
     #video {
       position: absolute; bottom: 12px; right: 12px;
-      width: 140px; height: 105px; border: 2px solid #30363d;
+      width: 130px; height: 98px; border: 2px solid #30363d;
       border-radius: 10px; z-index: 10; transform: scaleX(-1);
       object-fit: cover; background: #000;
     }
@@ -53,16 +59,18 @@
 <body>
   <div id="ui">
     <h1>Browser MonkeMocap 🐒</h1>
-    <p>Move with hands • Drag to orbit camera<br>
-    Scroll to zoom</p>
+    <p>GTAG movement • Drag camera • Select parts to transform</p>
     <div class="btn-row">
       <button id="recordBtn">● Record</button>
       <button id="stopBtn" disabled>Stop</button>
-      <button id="addPartBtn">+ Add Part</button>
+      <button id="addPartBtn">+ Part</button>
       <button id="resetPosBtn">Reset</button>
     </div>
     <div class="btn-row">
-      <button id="downloadGltf" disabled>Download GLTF</button>
+      <button class="mode-btn active" data-mode="move">Move</button>
+      <button class="mode-btn" data-mode="rotate">Rotate</button>
+      <button class="mode-btn" data-mode="scale">Scale</button>
+      <button id="downloadGltf" disabled>GLTF</button>
     </div>
     <div id="partsList"></div>
     <div id="status">Waiting for camera…</div>
@@ -73,6 +81,7 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
@@ -81,34 +90,57 @@
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0d1117);
     const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 100);
-    camera.position.set(0, 2.0, 5.5);
+    camera.position.set(0, 2.2, 6);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(innerWidth, innerHeight);
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5)); // lower for less lag
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
     document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-    // Camera controls
-    const controls = new THREE.OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.08;
-    controls.target.set(0, 1.4, 0);
-    controls.maxPolarAngle = Math.PI * 0.9;
-    controls.minDistance = 2;
-    controls.maxDistance = 12;
+    // Orbit camera
+    const orbit = new THREE.OrbitControls(camera, renderer.domElement);
+    orbit.enableDamping = true;
+    orbit.dampingFactor = 0.08;
+    orbit.target.set(0, 1.4, 0);
+    orbit.maxPolarAngle = Math.PI * 0.92;
+    orbit.minDistance = 1.5;
+    orbit.maxDistance = 15;
+
+    // Transform controls for parts
+    const transform = new THREE.TransformControls(camera, renderer.domElement);
+    transform.setSize(0.85);
+    scene.add(transform);
+    transform.addEventListener('dragging-changed', (e) => {
+      orbit.enabled = !e.value;
+    });
+
+    let currentMode = 'move';
+    transform.setMode('translate');
+
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentMode = btn.dataset.mode;
+        if (currentMode === 'move') transform.setMode('translate');
+        if (currentMode === 'rotate') transform.setMode('rotate');
+        if (currentMode === 'scale') transform.setMode('scale');
+      });
+    });
 
     scene.add(new THREE.AmbientLight(0x555555));
-    const light = new THREE.DirectionalLight(0xffffff, 1.1);
+    const light = new THREE.DirectionalLight(0xffffff, 1.15);
     light.position.set(5, 12, 7);
     scene.add(light);
 
     const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(40, 40),
+      new THREE.PlaneGeometry(50, 50),
       new THREE.MeshLambertMaterial({ color: 0x1a2332 })
     );
     ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
     scene.add(ground);
 
-    const grid = new THREE.GridHelper(30, 30, 0x30363d, 0x21262d);
+    const grid = new THREE.GridHelper(40, 40, 0x30363d, 0x21262d);
     grid.position.y = 0.01;
     scene.add(grid);
 
@@ -137,15 +169,15 @@
     const previewForeR  = makeCube(0.14, 0.40, 0.14, armMat, 'forearm.R');
     const previewHandR  = makeCube(0.20, 0.15, 0.11, handMat, 'hand.R');
 
-    const allCubes = [previewTorso, previewHead, previewUpperL, previewForeL, previewHandL, previewUpperR, previewForeR, previewHandR];
-    allCubes.forEach(c => { scene.add(c); c.visible = false; });
+    const bodyMeshes = [previewTorso, previewHead, previewUpperL, previewForeL, previewHandL, previewUpperR, previewForeR, previewHandR];
+    bodyMeshes.forEach(c => { scene.add(c); c.visible = false; });
 
-    let extraParts = [];
-    let partCounter = 0;
-
+    // ===== GTAG-style free movement =====
     let bodyOffset = new THREE.Vector3();
     let bodyVelocity = new THREE.Vector3();
     let lastHandCenter = null;
+    let lastHandL = null;
+    let lastHandR = null;
 
     // Smoothing
     const smooth = {
@@ -157,8 +189,8 @@
       upperRQuat: new THREE.Quaternion(), foreRQuat: new THREE.Quaternion(), handRQuat: new THREE.Quaternion()
     };
     let firstFrame = true;
-    const POS_SMOOTH = 0.25;
-    const QUAT_SMOOTH = 0.20;
+    const POS_SMOOTH = 0.28;
+    const QUAT_SMOOTH = 0.22;
 
     const REST = {
       torso:  new THREE.Vector3(0, 1.35, 0),
@@ -170,6 +202,10 @@
       foreR:  new THREE.Vector3( 0.80, 1.35, 0),
       handR:  new THREE.Vector3( 1.05, 1.12, 0)
     };
+
+    let extraParts = [];
+    let partCounter = 0;
+    let selectedPart = null;
 
     let recording = false;
     let recordedFrames = [];
@@ -183,25 +219,45 @@
     const statusEl = document.getElementById('status');
     const partsList = document.getElementById('partsList');
 
+    // ===== Add Part =====
     addPartBtn.addEventListener('click', () => {
       partCounter++;
       const name = 'extra_' + partCounter;
-      const cube = makeCube(0.18, 0.18, 0.18, extraMat.clone(), name);
-      cube.position.set((Math.random()-0.5)*1.5, 1.5 + Math.random()*0.8, (Math.random()-0.5)*0.8);
+      const cube = makeCube(0.25, 0.25, 0.25, extraMat.clone(), name);
+      cube.position.set(
+        bodyOffset.x + (Math.random()-0.5)*1.2,
+        1.2 + Math.random()*0.6,
+        bodyOffset.z + (Math.random()-0.5)*1.2
+      );
+      cube.userData.isExtra = true;
       scene.add(cube);
-      extraParts.push({ mesh: cube, name, parent: 'torso' });
+      extraParts.push({ mesh: cube, name });
+      selectPart(cube);
       updatePartsList();
-      statusEl.textContent = 'Added: ' + name;
+      statusEl.textContent = 'Added ' + name + ' — use Move/Rotate/Scale';
     });
+
+    function selectPart(mesh) {
+      selectedPart = mesh;
+      transform.attach(mesh);
+      updatePartsList();
+    }
 
     function updatePartsList() {
       partsList.innerHTML = '';
       extraParts.forEach((p, i) => {
         const row = document.createElement('div');
+        row.className = 'row' + (selectedPart === p.mesh ? ' selected' : '');
         row.innerHTML = `<span>${p.name}</span>`;
+        row.onclick = () => selectPart(p.mesh);
         const del = document.createElement('button');
         del.textContent = 'x';
-        del.onclick = () => {
+        del.onclick = (e) => {
+          e.stopPropagation();
+          if (selectedPart === p.mesh) {
+            transform.detach();
+            selectedPart = null;
+          }
           scene.remove(p.mesh);
           extraParts.splice(i, 1);
           updatePartsList();
@@ -211,12 +267,20 @@
       });
     }
 
+    // Click empty space to deselect
+    renderer.domElement.addEventListener('pointerdown', (e) => {
+      if (transform.dragging) return;
+      // simple raycast for part selection could be added later
+    });
+
     resetPosBtn.addEventListener('click', () => {
-      bodyOffset.set(0,0,0);
-      bodyVelocity.set(0,0,0);
+      bodyOffset.set(0, 0, 0);
+      bodyVelocity.set(0, 0, 0);
       lastHandCenter = null;
+      lastHandL = null;
+      lastHandR = null;
       firstFrame = true;
-      statusEl.textContent = 'Position reset.';
+      statusEl.textContent = 'Position reset to origin.';
     });
 
     recordBtn.addEventListener('click', () => {
@@ -243,9 +307,9 @@
 
     function lmToPos(lm) {
       return new THREE.Vector3(
-        (lm.x - 0.5) * 2.5,
-        (0.5 - lm.y) * 2.5 + 0.5,
-        -lm.z * 1.5
+        (lm.x - 0.5) * 2.6,
+        (0.5 - lm.y) * 2.6 + 0.4,
+        -lm.z * 1.6
       );
     }
 
@@ -269,7 +333,9 @@
       return quat;
     }
 
-    function applyGroundClamp(pos) {
+    // Strong ground clamp + simple collision with extra parts
+    function applyPhysics(pos) {
+      // Ground clamp (nothing below 0)
       const bottoms = [
         pos.upperL.y - 0.22, pos.foreL.y - 0.20, pos.handL.y - 0.07,
         pos.upperR.y - 0.22, pos.foreR.y - 0.20, pos.handR.y - 0.07,
@@ -278,7 +344,27 @@
       let lift = 0;
       const lowest = Math.min(...bottoms);
       if (lowest < 0) lift = -lowest;
-      Object.keys(pos).forEach(k => { if (pos[k].isVector3) pos[k].y += lift; });
+
+      Object.keys(pos).forEach(k => {
+        if (pos[k].isVector3) pos[k].y += lift;
+      });
+
+      // Simple collision: push body away from extra parts
+      const bodyPoints = [pos.torso, pos.head, pos.handL, pos.handR];
+      extraParts.forEach(p => {
+        const partPos = p.mesh.position;
+        const partScale = p.mesh.scale.x * 0.15; // approx radius
+        bodyPoints.forEach(bp => {
+          const dist = bp.distanceTo(partPos);
+          const minDist = 0.35 + partScale;
+          if (dist < minDist && dist > 0.01) {
+            const push = new THREE.Vector3().subVectors(bp, partPos).normalize().multiplyScalar(minDist - dist);
+            bp.add(push);
+            // also nudge the overall offset a bit
+            bodyOffset.add(push.multiplyScalar(0.3));
+          }
+        });
+      });
     }
 
     function computePose(landmarks) {
@@ -290,21 +376,36 @@
       const rW = lmToPos(landmarks[16] || {x:0.68,y:0.70,z:0});
       const nose = lmToPos(landmarks[0] || {x:0.50,y:0.28,z:0});
 
-      // Hand-driven movement
-      const handCenter = new THREE.Vector3().addVectors(lW, rW).multiplyScalar(0.5);
-      if (lastHandCenter) {
-        const delta = new THREE.Vector3().subVectors(handCenter, lastHandCenter);
-        bodyVelocity.x += delta.x * 0.50;
-        bodyVelocity.z += delta.z * 0.50;
-        bodyVelocity.y += delta.y * 0.12;
-      }
-      lastHandCenter = handCenter.clone();
-      bodyVelocity.multiplyScalar(0.93);
-      bodyOffset.add(bodyVelocity.clone().multiplyScalar(0.02));
-      bodyOffset.x = Math.max(-4, Math.min(4, bodyOffset.x));
-      bodyOffset.z = Math.max(-4, Math.min(4, bodyOffset.z));
-      bodyOffset.y = Math.max(-0.5, Math.min(1.5, bodyOffset.y));
+      // ===== STRONG GTAG-style locomotion =====
+      // Use individual hand deltas so one-hand or two-hand movement both work
+      if (lastHandL && lastHandR) {
+        const dL = new THREE.Vector3().subVectors(lW, lastHandL);
+        const dR = new THREE.Vector3().subVectors(rW, lastHandR);
 
+        // Average horizontal movement of both hands drives the body
+        const avgX = (dL.x + dR.x) * 0.5;
+        const avgZ = (dL.z + dR.z) * 0.5;
+        const avgY = (dL.y + dR.y) * 0.5;
+
+        // Strong response so you actually move around the world
+        bodyVelocity.x += avgX * 1.8;
+        bodyVelocity.z += avgZ * 1.8;
+        bodyVelocity.y += avgY * 0.4;
+      }
+
+      lastHandL = lW.clone();
+      lastHandR = rW.clone();
+
+      // Damping (still keeps momentum like GTAG)
+      bodyVelocity.multiplyScalar(0.91);
+      bodyOffset.add(bodyVelocity.clone().multiplyScalar(0.025));
+
+      // Soft world limits (large play area)
+      bodyOffset.x = Math.max(-12, Math.min(12, bodyOffset.x));
+      bodyOffset.z = Math.max(-12, Math.min(12, bodyOffset.z));
+      bodyOffset.y = Math.max(-0.8, Math.min(3.0, bodyOffset.y));
+
+      // Body construction
       const torsoPos = new THREE.Vector3().addVectors(lS, rS).multiplyScalar(0.5);
       torsoPos.y -= 0.22;
       torsoPos.add(bodyOffset);
@@ -378,12 +479,7 @@
         upperL: result.upperL.pos, foreL: result.foreL.pos, handL: result.handL.pos,
         upperR: result.upperR.pos, foreR: result.foreR.pos, handR: result.handR.pos
       };
-      applyGroundClamp(posOnly);
-
-      extraParts.forEach(p => {
-        p.mesh.position.copy(result.torso.pos);
-        p.mesh.position.y += 0.6;
-      });
+      applyPhysics(posOnly);
 
       return result;
     }
@@ -405,7 +501,10 @@
       previewForeR.quaternion.copy(pose.foreR.quat);
       previewHandR.position.copy(pose.handR.pos);
       previewHandR.quaternion.copy(pose.handR.quat);
-      allCubes.forEach(c => c.visible = true);
+      bodyMeshes.forEach(c => c.visible = true);
+
+      // Keep orbit target near the player
+      orbit.target.lerp(pose.torso.pos, 0.08);
     }
 
     downloadGltf.addEventListener('click', () => {
@@ -423,7 +522,10 @@
       const handR  = makeCube(0.20, 0.15, 0.11, handMat.clone(), 'hand.R');
 
       [torso, head, upperL, foreL, handL, upperR, foreR, handR].forEach(c => exportScene.add(c));
-      extraParts.forEach(p => exportScene.add(p.mesh.clone()));
+      extraParts.forEach(p => {
+        const clone = p.mesh.clone();
+        exportScene.add(clone);
+      });
 
       const times = [0, ...recordedFrames.map(f => f.t + 0.05)];
       const duration = times[times.length - 1] || 1;
@@ -466,7 +568,7 @@
         const blob = new Blob([JSON.stringify(result)], { type: 'model/gltf+json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url; a.download = `monke-${Date.now()}.gltf`; a.click();
+        a.href = url; a.download = `monke-gtag-${Date.now()}.gltf`; a.click();
         URL.revokeObjectURL(url);
         statusEl.textContent = 'GLTF downloaded!';
       }, { animations: [clip], binary: false });
@@ -477,7 +579,7 @@
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
     });
     pose.setOptions({
-      modelComplexity: 0,          // lighter model = less lag
+      modelComplexity: 0,
       smoothLandmarks: true,
       enableSegmentation: false,
       minDetectionConfidence: 0.5,
@@ -486,7 +588,7 @@
 
     pose.onResults((results) => {
       if (!results.poseLandmarks) {
-        allCubes.forEach(c => c.visible = false);
+        bodyMeshes.forEach(c => c.visible = false);
         return;
       }
 
@@ -508,7 +610,7 @@
     async function start() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'user', width: 480, height: 360 }, // lower res = less lag
+          video: { facingMode: 'user', width: 480, height: 360 },
           audio: false
         });
         videoElement.srcObject = stream;
@@ -519,7 +621,7 @@
           width: 480, height: 360
         });
         cam.start();
-        statusEl.textContent = 'Ready! Drag to move camera • Scroll to zoom';
+        statusEl.textContent = 'Ready! Move with hands (GTAG style) • Select parts to transform';
       } catch (err) {
         statusEl.textContent = 'Camera error: ' + err.message;
       }
@@ -528,7 +630,7 @@
 
     function animate() {
       requestAnimationFrame(animate);
-      controls.update();
+      orbit.update();
       renderer.render(scene, camera);
     }
     animate();
