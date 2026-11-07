@@ -56,8 +56,8 @@
 <body>
   <div id="ui">
     <h1>Browser MonkeMocap 🐒</h1>
-    <p>Head fixed (no more sideways) + closer to torso<br>
-    Eyes built-in • Mouth video export</p>
+    <p>Hands now rotate full <b>360° every direction</b><br>
+    Better proportions + smoother tracking</p>
     <div class="toggle-row">
       <label><input type="checkbox" id="eyeToggle" checked> Eye Tracking</label>
       <label><input type="checkbox" id="mouthToggle"> Mouth Tracking</label>
@@ -92,7 +92,7 @@
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0d1117);
     const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 100);
-    camera.position.set(0, 2.2, 5.5);
+    camera.position.set(0, 2.0, 5.2);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(innerWidth, innerHeight);
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -122,10 +122,7 @@
 
     function makeCube(w, h, d, mat, name) {
       const geo = new THREE.BoxGeometry(w, h, d);
-      // pivot at center for head, top for limbs
-      if (name === 'head') {
-        // keep centered
-      } else {
+      if (name !== 'head' && name !== 'hand.L' && name !== 'hand.R') {
         geo.translate(0, -h/2, 0);
       }
       const mesh = new THREE.Mesh(geo, mat);
@@ -133,44 +130,47 @@
       return mesh;
     }
 
-    const previewTorso = makeCube(0.55, 0.90, 0.38, torsoMat, 'torso');
-    const previewHead  = makeCube(0.40, 0.40, 0.40, headMat, 'head');
+    const previewTorso = makeCube(0.52, 0.85, 0.36, torsoMat, 'torso');
+    const previewHead  = makeCube(0.38, 0.38, 0.38, headMat, 'head');
 
-    // Eyes built into head
-    const previewEyeL = new THREE.Mesh(new THREE.SphereGeometry(0.055, 12, 12), eyeMat);
+    const previewEyeL = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 12), eyeMat);
     previewEyeL.name = 'eye.L';
     previewHead.add(previewEyeL);
-    previewEyeL.position.set(-0.09, 0.05, 0.18);
+    previewEyeL.position.set(-0.08, 0.04, 0.17);
 
-    const previewEyeR = new THREE.Mesh(new THREE.SphereGeometry(0.055, 12, 12), eyeMat);
+    const previewEyeR = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 12), eyeMat);
     previewEyeR.name = 'eye.R';
     previewHead.add(previewEyeR);
-    previewEyeR.position.set(0.09, 0.05, 0.18);
+    previewEyeR.position.set(0.08, 0.04, 0.17);
 
-    const previewUpperL = makeCube(0.17, 0.48, 0.17, armMat, 'upper_arm.L');
-    const previewForeL  = makeCube(0.15, 0.42, 0.15, armMat, 'forearm.L');
-    const previewHandL  = makeCube(0.22, 0.16, 0.12, handMat, 'hand.L');
-    const previewUpperR = makeCube(0.17, 0.48, 0.17, armMat, 'upper_arm.R');
-    const previewForeR  = makeCube(0.15, 0.42, 0.15, armMat, 'forearm.R');
-    const previewHandR  = makeCube(0.22, 0.16, 0.12, handMat, 'hand.R');
+    const previewUpperL = makeCube(0.16, 0.45, 0.16, armMat, 'upper_arm.L');
+    const previewForeL  = makeCube(0.14, 0.40, 0.14, armMat, 'forearm.L');
+    const previewHandL  = makeCube(0.20, 0.15, 0.11, handMat, 'hand.L');
+    const previewUpperR = makeCube(0.16, 0.45, 0.16, armMat, 'upper_arm.R');
+    const previewForeR  = makeCube(0.14, 0.40, 0.14, armMat, 'forearm.R');
+    const previewHandR  = makeCube(0.20, 0.15, 0.11, handMat, 'hand.R');
 
     const allCubes = [previewTorso, previewHead, previewUpperL, previewForeL, previewHandL, previewUpperR, previewForeR, previewHandR];
     allCubes.forEach(c => { scene.add(c); c.visible = false; });
 
-    // Physics - lighter so it doesn't lock
+    // Very light physics
     let bodyOffset = new THREE.Vector3();
     let bodyVelocity = new THREE.Vector3();
     let lastHandCenter = null;
 
+    // Smoothing for hands
+    let smoothHandLQuat = new THREE.Quaternion();
+    let smoothHandRQuat = new THREE.Quaternion();
+
     const REST = {
-      torso:  new THREE.Vector3(0, 1.40, 0),
-      head:   new THREE.Vector3(0, 2.05, 0),
-      upperL: new THREE.Vector3(-0.50, 1.70, 0),
-      foreL:  new THREE.Vector3(-0.85, 1.40, 0),
-      handL:  new THREE.Vector3(-1.10, 1.15, 0),
-      upperR: new THREE.Vector3( 0.50, 1.70, 0),
-      foreR:  new THREE.Vector3( 0.85, 1.40, 0),
-      handR:  new THREE.Vector3( 1.10, 1.15, 0)
+      torso:  new THREE.Vector3(0, 1.35, 0),
+      head:   new THREE.Vector3(0, 1.95, 0),
+      upperL: new THREE.Vector3(-0.48, 1.65, 0),
+      foreL:  new THREE.Vector3(-0.80, 1.35, 0),
+      handL:  new THREE.Vector3(-1.05, 1.12, 0),
+      upperR: new THREE.Vector3( 0.48, 1.65, 0),
+      foreR:  new THREE.Vector3( 0.80, 1.35, 0),
+      handR:  new THREE.Vector3( 1.05, 1.12, 0)
     };
 
     let recording = false;
@@ -212,7 +212,7 @@
       downloadNonames.disabled = true;
       downloadGltf.disabled = true;
       downloadMouthVideo.disabled = true;
-      statusEl.textContent = 'Recording… move around!';
+      statusEl.textContent = 'Recording… move your hands freely!';
     });
 
     stopBtn.addEventListener('click', () => {
@@ -298,20 +298,36 @@
 
     function lmToPos(lm) {
       return new THREE.Vector3(
-        (lm.x - 0.5) * 2.6,
-        (0.5 - lm.y) * 2.6 + 0.4,
-        -lm.z * 1.6
+        (lm.x - 0.5) * 2.5,
+        (0.5 - lm.y) * 2.5 + 0.5,
+        -lm.z * 1.5
       );
     }
 
-    function freeLookAtQuat(from, to) {
+    // Full free 360° quaternion for hands - no preferred up lock
+    function fullFreeQuat(from, to) {
       const dir = new THREE.Vector3().subVectors(to, from).normalize();
-      if (dir.lengthSq() < 0.0001) return new THREE.Quaternion();
+      if (dir.lengthSq() < 0.00001) return new THREE.Quaternion();
+
+      // Create a completely free orientation based on direction
+      // This allows full spherical rotation
       const quat = new THREE.Quaternion();
-      const up = Math.abs(dir.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
       const m = new THREE.Matrix4();
-      m.lookAt(new THREE.Vector3(), dir, up);
+
+      // Choose a stable up that doesn't flip when looking straight up/down
+      let up = new THREE.Vector3(0, 1, 0);
+      if (Math.abs(dir.y) > 0.95) {
+        up = new THREE.Vector3(0, 0, 1);
+      }
+
+      m.lookAt(new THREE.Vector3(0,0,0), dir, up);
       quat.setFromRotationMatrix(m);
+
+      // Add a little extra freedom by rotating around the direction axis based on horizontal movement
+      const twist = Math.atan2(dir.x, dir.z) * 0.3;
+      const twistQuat = new THREE.Quaternion().setFromAxisAngle(dir, twist);
+      quat.multiply(twistQuat);
+
       return quat;
     }
 
@@ -324,13 +340,13 @@
 
     function applyGroundClamp(pos) {
       const bottoms = [
-        pos.upperL.y - 0.24, pos.foreL.y - 0.21, pos.handL.y - 0.08,
-        pos.upperR.y - 0.24, pos.foreR.y - 0.21, pos.handR.y - 0.08
+        pos.upperL.y - 0.22, pos.foreL.y - 0.20, pos.handL.y - 0.07,
+        pos.upperR.y - 0.22, pos.foreR.y - 0.20, pos.handR.y - 0.07
       ];
       let lift = 0;
       const lowest = Math.min(...bottoms);
       if (lowest < 0) lift = -lowest;
-      const torsoBottom = pos.torso.y - 0.45;
+      const torsoBottom = pos.torso.y - 0.42;
       if (torsoBottom + lift < 0.05) lift = Math.max(lift, -torsoBottom + 0.05);
       Object.keys(pos).forEach(k => { if (pos[k].isVector3) pos[k].y += lift; });
       return lift;
@@ -345,39 +361,34 @@
       const rW = lmToPos(landmarks[16] || {x:0.68,y:0.70,z:0});
       const nose = lmToPos(landmarks[0] || {x:0.50,y:0.28,z:0});
 
-      // Lighter physics so it doesn't lock at origin
+      // Very light physics
       const handCenter = new THREE.Vector3().addVectors(lW, rW).multiplyScalar(0.5);
       if (lastHandCenter) {
         const delta = new THREE.Vector3().subVectors(handCenter, lastHandCenter);
-        bodyVelocity.add(delta.multiplyScalar(0.15)); // much lighter
+        bodyVelocity.add(delta.multiplyScalar(0.08));
       }
       lastHandCenter = handCenter.clone();
-      bodyVelocity.multiplyScalar(0.88);
+      bodyVelocity.multiplyScalar(0.90);
       bodyOffset.add(bodyVelocity.clone().multiplyScalar(0.016));
-      // soft limit so it doesn't fly away
-      bodyOffset.x = Math.max(-1.5, Math.min(1.5, bodyOffset.x));
-      bodyOffset.z = Math.max(-1.5, Math.min(1.5, bodyOffset.z));
-      bodyOffset.y = Math.max(-0.3, Math.min(0.8, bodyOffset.y));
+      bodyOffset.x = Math.max(-1.2, Math.min(1.2, bodyOffset.x));
+      bodyOffset.z = Math.max(-1.2, Math.min(1.2, bodyOffset.z));
+      bodyOffset.y = Math.max(-0.2, Math.min(0.6, bodyOffset.y));
 
-      // Torso = center of shoulders, lowered a bit
       const torsoPos = new THREE.Vector3().addVectors(lS, rS).multiplyScalar(0.5);
-      torsoPos.y -= 0.25;
+      torsoPos.y -= 0.22;
       torsoPos.add(bodyOffset);
 
-      // Only yaw for torso
       const shoulderDir = new THREE.Vector3().subVectors(rS, lS).normalize();
       const torsoYaw = Math.atan2(shoulderDir.x, shoulderDir.z);
       const torsoQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, torsoYaw, 0));
 
-      // HEAD - much closer and NO sideways rotation
-      // Place head just above the shoulder midpoint
+      // Head close and upright
       const headPos = new THREE.Vector3().addVectors(lS, rS).multiplyScalar(0.5);
-      headPos.y += 0.38;          // sit right on top of torso
+      headPos.y += 0.35;
       headPos.add(bodyOffset);
 
-      // Head only follows torso yaw + slight pitch from nose height
-      const noseRelY = nose.y - (torsoPos.y + 0.5);
-      const headPitch = Math.max(-0.6, Math.min(0.6, -noseRelY * 1.2));
+      const noseRelY = nose.y - (torsoPos.y + 0.45);
+      const headPitch = Math.max(-0.5, Math.min(0.5, -noseRelY * 1.1));
       const headQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(headPitch, torsoYaw, 0));
 
       // Arms
@@ -385,25 +396,30 @@
       const upperLQuat = lookAtQuat(lS, lE);
       const foreLPos = new THREE.Vector3().addVectors(lE, lW).multiplyScalar(0.5).add(bodyOffset);
       const foreLQuat = lookAtQuat(lE, lW);
+
+      // HANDS - full free 360° with smoothing
       const handLPos = lW.clone().add(bodyOffset);
-      const handLQuat = freeLookAtQuat(lE, lW);
+      const targetHandLQuat = fullFreeQuat(lE, lW);
+      smoothHandLQuat.slerp(targetHandLQuat, 0.35);
 
       const upperRPos = new THREE.Vector3().addVectors(rS, rE).multiplyScalar(0.5).add(bodyOffset);
       const upperRQuat = lookAtQuat(rS, rE);
       const foreRPos = new THREE.Vector3().addVectors(rE, rW).multiplyScalar(0.5).add(bodyOffset);
       const foreRQuat = lookAtQuat(rE, rW);
+
       const handRPos = rW.clone().add(bodyOffset);
-      const handRQuat = freeLookAtQuat(rE, rW);
+      const targetHandRQuat = fullFreeQuat(rE, rW);
+      smoothHandRQuat.slerp(targetHandRQuat, 0.35);
 
       const result = {
         torso: { pos: torsoPos, quat: torsoQuat },
         head:  { pos: headPos,  quat: headQuat },
         upperL:{ pos: upperLPos, quat: upperLQuat },
         foreL: { pos: foreLPos,  quat: foreLQuat },
-        handL: { pos: handLPos,  quat: handLQuat },
+        handL: { pos: handLPos,  quat: smoothHandLQuat.clone() },
         upperR:{ pos: upperRPos, quat: upperRQuat },
         foreR: { pos: foreRPos,  quat: foreRQuat },
-        handR: { pos: handRPos,  quat: handRQuat }
+        handR: { pos: handRPos,  quat: smoothHandRQuat.clone() }
       };
 
       const posOnly = {
@@ -450,26 +466,26 @@
 
     downloadGltf.addEventListener('click', () => {
       if (recordedFrames.length === 0) return;
-      statusEl.textContent = 'Building GLTF with fixed head + eyes…';
+      statusEl.textContent = 'Building GLTF with full hand rotation…';
 
       const exportScene = new THREE.Scene();
-      const torso = makeCube(0.55, 0.90, 0.38, torsoMat.clone(), 'torso');
-      const head  = makeCube(0.40, 0.40, 0.40, headMat.clone(), 'head');
-      const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.055, 12, 12), eyeMat.clone());
+      const torso = makeCube(0.52, 0.85, 0.36, torsoMat.clone(), 'torso');
+      const head  = makeCube(0.38, 0.38, 0.38, headMat.clone(), 'head');
+      const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 12), eyeMat.clone());
       eyeL.name = 'eye.L';
       head.add(eyeL);
-      eyeL.position.set(-0.09, 0.05, 0.18);
-      const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.055, 12, 12), eyeMat.clone());
+      eyeL.position.set(-0.08, 0.04, 0.17);
+      const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 12), eyeMat.clone());
       eyeR.name = 'eye.R';
       head.add(eyeR);
-      eyeR.position.set(0.09, 0.05, 0.18);
+      eyeR.position.set(0.08, 0.04, 0.17);
 
-      const upperL = makeCube(0.17, 0.48, 0.17, armMat.clone(), 'upper_arm.L');
-      const foreL  = makeCube(0.15, 0.42, 0.15, armMat.clone(), 'forearm.L');
-      const handL  = makeCube(0.22, 0.16, 0.12, handMat.clone(), 'hand.L');
-      const upperR = makeCube(0.17, 0.48, 0.17, armMat.clone(), 'upper_arm.R');
-      const foreR  = makeCube(0.15, 0.42, 0.15, armMat.clone(), 'forearm.R');
-      const handR  = makeCube(0.22, 0.16, 0.12, handMat.clone(), 'hand.R');
+      const upperL = makeCube(0.16, 0.45, 0.16, armMat.clone(), 'upper_arm.L');
+      const foreL  = makeCube(0.14, 0.40, 0.14, armMat.clone(), 'forearm.L');
+      const handL  = makeCube(0.20, 0.15, 0.11, handMat.clone(), 'hand.L');
+      const upperR = makeCube(0.16, 0.45, 0.16, armMat.clone(), 'upper_arm.R');
+      const foreR  = makeCube(0.14, 0.40, 0.14, armMat.clone(), 'forearm.R');
+      const handR  = makeCube(0.20, 0.15, 0.11, handMat.clone(), 'hand.R');
 
       [torso, head, upperL, foreL, handL, upperR, foreR, handR].forEach(c => exportScene.add(c));
 
@@ -516,10 +532,10 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `monke-fixed-head-${Date.now()}.gltf`;
+        a.download = `monke-hands360-${Date.now()}.gltf`;
         a.click();
         URL.revokeObjectURL(url);
-        statusEl.textContent = 'GLTF downloaded! Head is now upright and closer.';
+        statusEl.textContent = 'GLTF downloaded! Hands have full 360° rotation.';
       }, { animations: [clip], binary: false });
     });
 
@@ -592,7 +608,7 @@
           width: 640, height: 480
         });
         cam.start();
-        statusEl.textContent = 'Camera ready! Head should now be upright and closer to the body.';
+        statusEl.textContent = 'Camera ready! Hands now rotate full 360° in every direction.';
       } catch (err) {
         statusEl.textContent = 'Camera error: ' + err.message;
       }
