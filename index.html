@@ -15,7 +15,7 @@
       position: absolute; top: 12px; left: 12px; z-index: 20;
       background: rgba(13,17,23,0.94); padding: 14px 16px;
       border-radius: 12px; border: 1px solid #30363d;
-      max-width: 400px; font-size: 13px; line-height: 1.45;
+      max-width: 420px; font-size: 13px; line-height: 1.45;
     }
     #ui h1 { margin: 0 0 6px; font-size: 18px; color: #7ee787; }
     #ui p { margin: 0 0 8px; opacity: 0.85; }
@@ -32,9 +32,17 @@
     #downloadNonames { background: #1f6feb; color: white; }
     #downloadGltf { background: #8957e5; color: white; }
     #downloadMouthVideo { background: #db6d28; color: white; }
+    #addPartBtn { background: #c47a3a; color: white; }
+    #resetPosBtn { background: #444; color: white; }
     button:disabled { opacity: 0.45; cursor: not-allowed; }
     .toggle-row { margin-top: 10px; display: flex; gap: 14px; flex-wrap: wrap; }
     .toggle-row label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; }
+    #partsList {
+      margin-top: 10px; max-height: 120px; overflow-y: auto;
+      background: #161b22; border-radius: 6px; padding: 6px; font-size: 12px;
+    }
+    #partsList div { padding: 3px 0; display: flex; justify-content: space-between; align-items: center; }
+    #partsList button { padding: 2px 6px; font-size: 11px; background: #333; color: #ccc; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.7} }
     #status { margin-top: 10px; font-size: 12px; color: #8b949e; }
     #video {
@@ -56,8 +64,8 @@
 <body>
   <div id="ui">
     <h1>Browser MonkeMocap 🐒</h1>
-    <p>Hands now rotate full <b>360° every direction</b><br>
-    Better proportions + smoother tracking</p>
+    <p>Move with your hands • Never go below 0<br>
+    Add extra parts like Forma 3D</p>
     <div class="toggle-row">
       <label><input type="checkbox" id="eyeToggle" checked> Eye Tracking</label>
       <label><input type="checkbox" id="mouthToggle"> Mouth Tracking</label>
@@ -65,13 +73,16 @@
     <div class="btn-row">
       <button id="recordBtn">● Record</button>
       <button id="stopBtn" disabled>Stop</button>
+      <button id="addPartBtn">+ Add Part</button>
+      <button id="resetPosBtn">Reset Position</button>
     </div>
     <div class="btn-row">
       <button id="downloadBody" disabled>Body JSON</button>
       <button id="downloadNonames" disabled>Nonames JSON</button>
-      <button id="downloadGltf" disabled>GLTF (with eyes)</button>
+      <button id="downloadGltf" disabled>GLTF</button>
       <button id="downloadMouthVideo" disabled>Mouth Video</button>
     </div>
+    <div id="partsList"></div>
     <div id="status">Waiting for camera…</div>
   </div>
 
@@ -92,7 +103,7 @@
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0d1117);
     const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 100);
-    camera.position.set(0, 2.0, 5.2);
+    camera.position.set(0, 2.0, 5.5);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(innerWidth, innerHeight);
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -104,13 +115,13 @@
     scene.add(light);
 
     const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(30, 30),
+      new THREE.PlaneGeometry(40, 40),
       new THREE.MeshLambertMaterial({ color: 0x1a2332 })
     );
     ground.rotation.x = -Math.PI / 2;
     scene.add(ground);
 
-    const grid = new THREE.GridHelper(20, 20, 0x30363d, 0x21262d);
+    const grid = new THREE.GridHelper(30, 30, 0x30363d, 0x21262d);
     grid.position.y = 0.01;
     scene.add(grid);
 
@@ -119,10 +130,11 @@
     const armMat   = new THREE.MeshStandardMaterial({ color: 0xCD853F, roughness: 0.4 });
     const handMat  = new THREE.MeshStandardMaterial({ color: 0xDEB887, roughness: 0.35 });
     const eyeMat   = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.2 });
+    const extraMat = new THREE.MeshStandardMaterial({ color: 0x6b8e23, roughness: 0.4 });
 
     function makeCube(w, h, d, mat, name) {
       const geo = new THREE.BoxGeometry(w, h, d);
-      if (name !== 'head' && name !== 'hand.L' && name !== 'hand.R') {
+      if (name !== 'head' && !name.startsWith('hand') && !name.startsWith('extra')) {
         geo.translate(0, -h/2, 0);
       }
       const mesh = new THREE.Mesh(geo, mat);
@@ -153,12 +165,15 @@
     const allCubes = [previewTorso, previewHead, previewUpperL, previewForeL, previewHandL, previewUpperR, previewForeR, previewHandR];
     allCubes.forEach(c => { scene.add(c); c.visible = false; });
 
-    // Very light physics
+    // Extra parts system (like Forma 3D)
+    let extraParts = [];
+    let partCounter = 0;
+
+    // Free movement driven by hands
     let bodyOffset = new THREE.Vector3();
     let bodyVelocity = new THREE.Vector3();
     let lastHandCenter = null;
 
-    // Smoothing for hands
     let smoothHandLQuat = new THREE.Quaternion();
     let smoothHandRQuat = new THREE.Quaternion();
 
@@ -184,10 +199,13 @@
     const downloadNonames = document.getElementById('downloadNonames');
     const downloadGltf = document.getElementById('downloadGltf');
     const downloadMouthVideo = document.getElementById('downloadMouthVideo');
+    const addPartBtn = document.getElementById('addPartBtn');
+    const resetPosBtn = document.getElementById('resetPosBtn');
     const statusEl = document.getElementById('status');
     const eyeToggle = document.getElementById('eyeToggle');
     const mouthToggle = document.getElementById('mouthToggle');
     const mouthPreview = document.getElementById('mouthPreview');
+    const partsList = document.getElementById('partsList');
 
     const MOUTH_IMGS = [
       window.MOUTH_FRAME_0,
@@ -196,14 +214,51 @@
       window.MOUTH_FRAME_3
     ];
 
+    // ===== Add Part (Forma-style) =====
+    addPartBtn.addEventListener('click', () => {
+      partCounter++;
+      const name = 'extra_' + partCounter;
+      const cube = makeCube(0.18, 0.18, 0.18, extraMat.clone(), name);
+      cube.position.set(
+        (Math.random() - 0.5) * 1.5,
+        1.5 + Math.random() * 0.8,
+        (Math.random() - 0.5) * 0.8
+      );
+      scene.add(cube);
+      extraParts.push({ mesh: cube, name, parent: 'torso' });
+      updatePartsList();
+      statusEl.textContent = 'Added part: ' + name;
+    });
+
+    function updatePartsList() {
+      partsList.innerHTML = '';
+      extraParts.forEach((p, i) => {
+        const row = document.createElement('div');
+        row.innerHTML = `<span>${p.name} → ${p.parent}</span>`;
+        const del = document.createElement('button');
+        del.textContent = 'x';
+        del.onclick = () => {
+          scene.remove(p.mesh);
+          extraParts.splice(i, 1);
+          updatePartsList();
+        };
+        row.appendChild(del);
+        partsList.appendChild(row);
+      });
+    }
+
+    resetPosBtn.addEventListener('click', () => {
+      bodyOffset.set(0, 0, 0);
+      bodyVelocity.set(0, 0, 0);
+      lastHandCenter = null;
+      statusEl.textContent = 'Position reset.';
+    });
+
     recordBtn.addEventListener('click', () => {
       recording = true;
       recordedFrames = [];
       mouthFrames = [];
       startTime = performance.now();
-      bodyOffset.set(0,0,0);
-      bodyVelocity.set(0,0,0);
-      lastHandCenter = null;
       recordBtn.classList.add('recording');
       recordBtn.textContent = '● Recording…';
       recordBtn.disabled = true;
@@ -212,7 +267,7 @@
       downloadNonames.disabled = true;
       downloadGltf.disabled = true;
       downloadMouthVideo.disabled = true;
-      statusEl.textContent = 'Recording… move your hands freely!';
+      statusEl.textContent = 'Recording… move with your hands!';
     });
 
     stopBtn.addEventListener('click', () => {
@@ -255,12 +310,9 @@
     downloadMouthVideo.addEventListener('click', async () => {
       if (mouthFrames.length === 0) return;
       statusEl.textContent = 'Building mouth video…';
-
       const canvas = document.createElement('canvas');
-      canvas.width = 256;
-      canvas.height = 128;
+      canvas.width = 256; canvas.height = 128;
       const ctx = canvas.getContext('2d');
-
       const stream = canvas.captureStream(30);
       const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9' });
       const chunks = [];
@@ -275,16 +327,10 @@
         URL.revokeObjectURL(url);
         statusEl.textContent = 'Mouth video downloaded!';
       };
-
       recorder.start();
       let i = 0;
-      const fps = 12;
       const interval = setInterval(() => {
-        if (i >= mouthFrames.length) {
-          clearInterval(interval);
-          recorder.stop();
-          return;
-        }
+        if (i >= mouthFrames.length) { clearInterval(interval); recorder.stop(); return; }
         const img = new Image();
         img.onload = () => {
           ctx.fillStyle = '#000';
@@ -293,7 +339,7 @@
         };
         img.src = MOUTH_IMGS[mouthFrames[i]];
         i++;
-      }, 1000 / fps);
+      }, 1000 / 12);
     });
 
     function lmToPos(lm) {
@@ -304,30 +350,18 @@
       );
     }
 
-    // Full free 360° quaternion for hands - no preferred up lock
     function fullFreeQuat(from, to) {
       const dir = new THREE.Vector3().subVectors(to, from).normalize();
       if (dir.lengthSq() < 0.00001) return new THREE.Quaternion();
-
-      // Create a completely free orientation based on direction
-      // This allows full spherical rotation
       const quat = new THREE.Quaternion();
       const m = new THREE.Matrix4();
-
-      // Choose a stable up that doesn't flip when looking straight up/down
       let up = new THREE.Vector3(0, 1, 0);
-      if (Math.abs(dir.y) > 0.95) {
-        up = new THREE.Vector3(0, 0, 1);
-      }
-
+      if (Math.abs(dir.y) > 0.95) up = new THREE.Vector3(0, 0, 1);
       m.lookAt(new THREE.Vector3(0,0,0), dir, up);
       quat.setFromRotationMatrix(m);
-
-      // Add a little extra freedom by rotating around the direction axis based on horizontal movement
       const twist = Math.atan2(dir.x, dir.z) * 0.3;
       const twistQuat = new THREE.Quaternion().setFromAxisAngle(dir, twist);
       quat.multiply(twistQuat);
-
       return quat;
     }
 
@@ -338,16 +372,16 @@
       return quat;
     }
 
+    // Strong ground clamp - nothing below 0
     function applyGroundClamp(pos) {
       const bottoms = [
         pos.upperL.y - 0.22, pos.foreL.y - 0.20, pos.handL.y - 0.07,
-        pos.upperR.y - 0.22, pos.foreR.y - 0.20, pos.handR.y - 0.07
+        pos.upperR.y - 0.22, pos.foreR.y - 0.20, pos.handR.y - 0.07,
+        pos.torso.y - 0.42, pos.head.y - 0.19
       ];
       let lift = 0;
       const lowest = Math.min(...bottoms);
       if (lowest < 0) lift = -lowest;
-      const torsoBottom = pos.torso.y - 0.42;
-      if (torsoBottom + lift < 0.05) lift = Math.max(lift, -torsoBottom + 0.05);
       Object.keys(pos).forEach(k => { if (pos[k].isVector3) pos[k].y += lift; });
       return lift;
     }
@@ -361,18 +395,26 @@
       const rW = lmToPos(landmarks[16] || {x:0.68,y:0.70,z:0});
       const nose = lmToPos(landmarks[0] || {x:0.50,y:0.28,z:0});
 
-      // Very light physics
+      // Move with hands - stronger response so you don't stay at 0,0,0
       const handCenter = new THREE.Vector3().addVectors(lW, rW).multiplyScalar(0.5);
       if (lastHandCenter) {
         const delta = new THREE.Vector3().subVectors(handCenter, lastHandCenter);
-        bodyVelocity.add(delta.multiplyScalar(0.08));
+        // Only horizontal movement drives the body (X and Z)
+        bodyVelocity.x += delta.x * 0.55;
+        bodyVelocity.z += delta.z * 0.55;
+        // slight vertical from average hand height
+        bodyVelocity.y += delta.y * 0.15;
       }
       lastHandCenter = handCenter.clone();
-      bodyVelocity.multiplyScalar(0.90);
-      bodyOffset.add(bodyVelocity.clone().multiplyScalar(0.016));
-      bodyOffset.x = Math.max(-1.2, Math.min(1.2, bodyOffset.x));
-      bodyOffset.z = Math.max(-1.2, Math.min(1.2, bodyOffset.z));
-      bodyOffset.y = Math.max(-0.2, Math.min(0.6, bodyOffset.y));
+
+      // damping
+      bodyVelocity.multiplyScalar(0.92);
+      bodyOffset.add(bodyVelocity.clone().multiplyScalar(0.02));
+
+      // soft limits so you can still move around freely
+      bodyOffset.x = Math.max(-4, Math.min(4, bodyOffset.x));
+      bodyOffset.z = Math.max(-4, Math.min(4, bodyOffset.z));
+      bodyOffset.y = Math.max(-0.5, Math.min(1.5, bodyOffset.y));
 
       const torsoPos = new THREE.Vector3().addVectors(lS, rS).multiplyScalar(0.5);
       torsoPos.y -= 0.22;
@@ -382,7 +424,6 @@
       const torsoYaw = Math.atan2(shoulderDir.x, shoulderDir.z);
       const torsoQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, torsoYaw, 0));
 
-      // Head close and upright
       const headPos = new THREE.Vector3().addVectors(lS, rS).multiplyScalar(0.5);
       headPos.y += 0.35;
       headPos.add(bodyOffset);
@@ -391,25 +432,21 @@
       const headPitch = Math.max(-0.5, Math.min(0.5, -noseRelY * 1.1));
       const headQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(headPitch, torsoYaw, 0));
 
-      // Arms
       const upperLPos = new THREE.Vector3().addVectors(lS, lE).multiplyScalar(0.5).add(bodyOffset);
       const upperLQuat = lookAtQuat(lS, lE);
       const foreLPos = new THREE.Vector3().addVectors(lE, lW).multiplyScalar(0.5).add(bodyOffset);
       const foreLQuat = lookAtQuat(lE, lW);
-
-      // HANDS - full free 360° with smoothing
       const handLPos = lW.clone().add(bodyOffset);
       const targetHandLQuat = fullFreeQuat(lE, lW);
-      smoothHandLQuat.slerp(targetHandLQuat, 0.35);
+      smoothHandLQuat.slerp(targetHandLQuat, 0.4);
 
       const upperRPos = new THREE.Vector3().addVectors(rS, rE).multiplyScalar(0.5).add(bodyOffset);
       const upperRQuat = lookAtQuat(rS, rE);
       const foreRPos = new THREE.Vector3().addVectors(rE, rW).multiplyScalar(0.5).add(bodyOffset);
       const foreRQuat = lookAtQuat(rE, rW);
-
       const handRPos = rW.clone().add(bodyOffset);
       const targetHandRQuat = fullFreeQuat(rE, rW);
-      smoothHandRQuat.slerp(targetHandRQuat, 0.35);
+      smoothHandRQuat.slerp(targetHandRQuat, 0.4);
 
       const result = {
         torso: { pos: torsoPos, quat: torsoQuat },
@@ -428,6 +465,16 @@
         upperR: result.upperR.pos, foreR: result.foreR.pos, handR: result.handR.pos
       };
       applyGroundClamp(posOnly);
+
+      // Keep extra parts following the torso
+      extraParts.forEach(p => {
+        if (p.parent === 'torso') {
+          p.mesh.position.copy(result.torso.pos);
+          p.mesh.position.y += 0.6 + (p.mesh.userData.yOff || 0.3);
+          p.mesh.position.x += (p.mesh.userData.xOff || 0);
+        }
+      });
+
       return result;
     }
 
@@ -466,19 +513,15 @@
 
     downloadGltf.addEventListener('click', () => {
       if (recordedFrames.length === 0) return;
-      statusEl.textContent = 'Building GLTF with full hand rotation…';
+      statusEl.textContent = 'Building GLTF…';
 
       const exportScene = new THREE.Scene();
       const torso = makeCube(0.52, 0.85, 0.36, torsoMat.clone(), 'torso');
       const head  = makeCube(0.38, 0.38, 0.38, headMat.clone(), 'head');
       const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 12), eyeMat.clone());
-      eyeL.name = 'eye.L';
-      head.add(eyeL);
-      eyeL.position.set(-0.08, 0.04, 0.17);
+      eyeL.name = 'eye.L'; head.add(eyeL); eyeL.position.set(-0.08, 0.04, 0.17);
       const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 12), eyeMat.clone());
-      eyeR.name = 'eye.R';
-      head.add(eyeR);
-      eyeR.position.set(0.08, 0.04, 0.17);
+      eyeR.name = 'eye.R'; head.add(eyeR); eyeR.position.set(0.08, 0.04, 0.17);
 
       const upperL = makeCube(0.16, 0.45, 0.16, armMat.clone(), 'upper_arm.L');
       const foreL  = makeCube(0.14, 0.40, 0.14, armMat.clone(), 'forearm.L');
@@ -488,6 +531,12 @@
       const handR  = makeCube(0.20, 0.15, 0.11, handMat.clone(), 'hand.R');
 
       [torso, head, upperL, foreL, handL, upperR, foreR, handR].forEach(c => exportScene.add(c));
+
+      // also export extra parts
+      extraParts.forEach(p => {
+        const clone = p.mesh.clone();
+        exportScene.add(clone);
+      });
 
       const times = [0, ...recordedFrames.map(f => f.t + 0.05)];
       const duration = times[times.length - 1] || 1;
@@ -532,10 +581,10 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `monke-hands360-${Date.now()}.gltf`;
+        a.download = `monke-parts-${Date.now()}.gltf`;
         a.click();
         URL.revokeObjectURL(url);
-        statusEl.textContent = 'GLTF downloaded! Hands have full 360° rotation.';
+        statusEl.textContent = 'GLTF downloaded!';
       }, { animations: [clip], binary: false });
     });
 
@@ -608,7 +657,7 @@
           width: 640, height: 480
         });
         cam.start();
-        statusEl.textContent = 'Camera ready! Hands now rotate full 360° in every direction.';
+        statusEl.textContent = 'Ready! Move with your hands • Add parts • Nothing goes below 0';
       } catch (err) {
         statusEl.textContent = 'Camera error: ' + err.message;
       }
