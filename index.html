@@ -64,8 +64,8 @@
 <body>
   <div id="ui">
     <h1>Browser MonkeMocap 🐒</h1>
-    <p>Move with your hands • Never go below 0<br>
-    Add extra parts like Forma 3D</p>
+    <p>Move with hands • No below 0 • Less twitching<br>
+    Add extra parts</p>
     <div class="toggle-row">
       <label><input type="checkbox" id="eyeToggle" checked> Eye Tracking</label>
       <label><input type="checkbox" id="mouthToggle"> Mouth Tracking</label>
@@ -165,17 +165,36 @@
     const allCubes = [previewTorso, previewHead, previewUpperL, previewForeL, previewHandL, previewUpperR, previewForeR, previewHandR];
     allCubes.forEach(c => { scene.add(c); c.visible = false; });
 
-    // Extra parts system (like Forma 3D)
     let extraParts = [];
     let partCounter = 0;
 
-    // Free movement driven by hands
+    // Movement
     let bodyOffset = new THREE.Vector3();
     let bodyVelocity = new THREE.Vector3();
     let lastHandCenter = null;
 
-    let smoothHandLQuat = new THREE.Quaternion();
-    let smoothHandRQuat = new THREE.Quaternion();
+    // Strong smoothing buffers to kill twitching
+    const smooth = {
+      torsoPos: new THREE.Vector3(),
+      headPos: new THREE.Vector3(),
+      upperLPos: new THREE.Vector3(),
+      foreLPos: new THREE.Vector3(),
+      handLPos: new THREE.Vector3(),
+      upperRPos: new THREE.Vector3(),
+      foreRPos: new THREE.Vector3(),
+      handRPos: new THREE.Vector3(),
+      torsoQuat: new THREE.Quaternion(),
+      headQuat: new THREE.Quaternion(),
+      upperLQuat: new THREE.Quaternion(),
+      foreLQuat: new THREE.Quaternion(),
+      handLQuat: new THREE.Quaternion(),
+      upperRQuat: new THREE.Quaternion(),
+      foreRQuat: new THREE.Quaternion(),
+      handRQuat: new THREE.Quaternion()
+    };
+    let firstFrame = true;
+    const POS_SMOOTH = 0.22;   // lower = smoother, less twitchy
+    const QUAT_SMOOTH = 0.18;
 
     const REST = {
       torso:  new THREE.Vector3(0, 1.35, 0),
@@ -214,16 +233,11 @@
       window.MOUTH_FRAME_3
     ];
 
-    // ===== Add Part (Forma-style) =====
     addPartBtn.addEventListener('click', () => {
       partCounter++;
       const name = 'extra_' + partCounter;
       const cube = makeCube(0.18, 0.18, 0.18, extraMat.clone(), name);
-      cube.position.set(
-        (Math.random() - 0.5) * 1.5,
-        1.5 + Math.random() * 0.8,
-        (Math.random() - 0.5) * 0.8
-      );
+      cube.position.set((Math.random()-0.5)*1.5, 1.5 + Math.random()*0.8, (Math.random()-0.5)*0.8);
       scene.add(cube);
       extraParts.push({ mesh: cube, name, parent: 'torso' });
       updatePartsList();
@@ -248,9 +262,10 @@
     }
 
     resetPosBtn.addEventListener('click', () => {
-      bodyOffset.set(0, 0, 0);
-      bodyVelocity.set(0, 0, 0);
+      bodyOffset.set(0,0,0);
+      bodyVelocity.set(0,0,0);
       lastHandCenter = null;
+      firstFrame = true;
       statusEl.textContent = 'Position reset.';
     });
 
@@ -267,7 +282,7 @@
       downloadNonames.disabled = true;
       downloadGltf.disabled = true;
       downloadMouthVideo.disabled = true;
-      statusEl.textContent = 'Recording… move with your hands!';
+      statusEl.textContent = 'Recording…';
     });
 
     stopBtn.addEventListener('click', () => {
@@ -285,25 +300,20 @@
     });
 
     downloadBody.addEventListener('click', () => {
-      downloadJSON({
-        version: 1,
-        type: 'mediapipe-pose',
-        frameCount: recordedFrames.length,
-        frames: recordedFrames
-      }, `monke-body-${Date.now()}.json`);
+      downloadJSON({ version:1, type:'mediapipe-pose', frameCount:recordedFrames.length, frames:recordedFrames }, `monke-body-${Date.now()}.json`);
       statusEl.textContent = 'Body pose JSON downloaded.';
     });
 
     downloadNonames.addEventListener('click', () => {
       const cameraPoseList = recordedFrames.map((frame, i) => {
-        const nose = frame.landmarks[0] || { x: 0.5, y: 0.5, z: 0 };
+        const nose = frame.landmarks[0] || { x:0.5, y:0.5, z:0 };
         return {
-          frame: i, time: frame.t,
-          position: { x: (nose.x-0.5)*2, y: (0.5-nose.y)*1.5+1.5, z: -nose.z*3-2.5 },
-          rotation: { x: (nose.y-0.5)*0.5, y: (nose.x-0.5)*0.8, z: 0 }
+          frame:i, time:frame.t,
+          position:{ x:(nose.x-0.5)*2, y:(0.5-nose.y)*1.5+1.5, z:-nose.z*3-2.5 },
+          rotation:{ x:(nose.y-0.5)*0.5, y:(nose.x-0.5)*0.8, z:0 }
         };
       });
-      downloadJSON({ cameraPoseList, bodyPoseFrames: recordedFrames, version: 1 }, `monke-nonames-${Date.now()}.json`);
+      downloadJSON({ cameraPoseList, bodyPoseFrames:recordedFrames, version:1 }, `monke-nonames-${Date.now()}.json`);
       statusEl.textContent = 'Nonames JSON downloaded.';
     });
 
@@ -314,16 +324,14 @@
       canvas.width = 256; canvas.height = 128;
       const ctx = canvas.getContext('2d');
       const stream = canvas.captureStream(30);
-      const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9' });
+      const recorder = new MediaRecorder(stream, { mimeType:'video/webm;codecs=vp9' });
       const chunks = [];
       recorder.ondataavailable = e => chunks.push(e.data);
       recorder.onstop = () => {
-        const blob = new Blob(chunks, { type: 'video/webm' });
+        const blob = new Blob(chunks, { type:'video/webm' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url;
-        a.download = `monke-mouth-${Date.now()}.webm`;
-        a.click();
+        a.href = url; a.download = `monke-mouth-${Date.now()}.webm`; a.click();
         URL.revokeObjectURL(url);
         statusEl.textContent = 'Mouth video downloaded!';
       };
@@ -332,14 +340,10 @@
       const interval = setInterval(() => {
         if (i >= mouthFrames.length) { clearInterval(interval); recorder.stop(); return; }
         const img = new Image();
-        img.onload = () => {
-          ctx.fillStyle = '#000';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        };
+        img.onload = () => { ctx.fillStyle='#000'; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.drawImage(img,0,0,canvas.width,canvas.height); };
         img.src = MOUTH_IMGS[mouthFrames[i]];
         i++;
-      }, 1000 / 12);
+      }, 1000/12);
     });
 
     function lmToPos(lm) {
@@ -359,20 +363,17 @@
       if (Math.abs(dir.y) > 0.95) up = new THREE.Vector3(0, 0, 1);
       m.lookAt(new THREE.Vector3(0,0,0), dir, up);
       quat.setFromRotationMatrix(m);
-      const twist = Math.atan2(dir.x, dir.z) * 0.3;
-      const twistQuat = new THREE.Quaternion().setFromAxisAngle(dir, twist);
-      quat.multiply(twistQuat);
       return quat;
     }
 
     function lookAtQuat(from, to) {
       const dir = new THREE.Vector3().subVectors(to, from).normalize();
+      if (dir.lengthSq() < 0.00001) return new THREE.Quaternion();
       const quat = new THREE.Quaternion();
       quat.setFromUnitVectors(new THREE.Vector3(0, -1, 0), dir);
       return quat;
     }
 
-    // Strong ground clamp - nothing below 0
     function applyGroundClamp(pos) {
       const bottoms = [
         pos.upperL.y - 0.22, pos.foreL.y - 0.20, pos.handL.y - 0.07,
@@ -395,27 +396,22 @@
       const rW = lmToPos(landmarks[16] || {x:0.68,y:0.70,z:0});
       const nose = lmToPos(landmarks[0] || {x:0.50,y:0.28,z:0});
 
-      // Move with hands - stronger response so you don't stay at 0,0,0
+      // Hand-driven movement
       const handCenter = new THREE.Vector3().addVectors(lW, rW).multiplyScalar(0.5);
       if (lastHandCenter) {
         const delta = new THREE.Vector3().subVectors(handCenter, lastHandCenter);
-        // Only horizontal movement drives the body (X and Z)
-        bodyVelocity.x += delta.x * 0.55;
-        bodyVelocity.z += delta.z * 0.55;
-        // slight vertical from average hand height
-        bodyVelocity.y += delta.y * 0.15;
+        bodyVelocity.x += delta.x * 0.50;
+        bodyVelocity.z += delta.z * 0.50;
+        bodyVelocity.y += delta.y * 0.12;
       }
       lastHandCenter = handCenter.clone();
-
-      // damping
-      bodyVelocity.multiplyScalar(0.92);
+      bodyVelocity.multiplyScalar(0.93);
       bodyOffset.add(bodyVelocity.clone().multiplyScalar(0.02));
-
-      // soft limits so you can still move around freely
       bodyOffset.x = Math.max(-4, Math.min(4, bodyOffset.x));
       bodyOffset.z = Math.max(-4, Math.min(4, bodyOffset.z));
       bodyOffset.y = Math.max(-0.5, Math.min(1.5, bodyOffset.y));
 
+      // Raw targets
       const torsoPos = new THREE.Vector3().addVectors(lS, rS).multiplyScalar(0.5);
       torsoPos.y -= 0.22;
       torsoPos.add(bodyOffset);
@@ -437,26 +433,63 @@
       const foreLPos = new THREE.Vector3().addVectors(lE, lW).multiplyScalar(0.5).add(bodyOffset);
       const foreLQuat = lookAtQuat(lE, lW);
       const handLPos = lW.clone().add(bodyOffset);
-      const targetHandLQuat = fullFreeQuat(lE, lW);
-      smoothHandLQuat.slerp(targetHandLQuat, 0.4);
+      const handLQuat = fullFreeQuat(lE, lW);
 
       const upperRPos = new THREE.Vector3().addVectors(rS, rE).multiplyScalar(0.5).add(bodyOffset);
       const upperRQuat = lookAtQuat(rS, rE);
       const foreRPos = new THREE.Vector3().addVectors(rE, rW).multiplyScalar(0.5).add(bodyOffset);
       const foreRQuat = lookAtQuat(rE, rW);
       const handRPos = rW.clone().add(bodyOffset);
-      const targetHandRQuat = fullFreeQuat(rE, rW);
-      smoothHandRQuat.slerp(targetHandRQuat, 0.4);
+      const handRQuat = fullFreeQuat(rE, rW);
+
+      // Apply strong smoothing to kill twitching
+      if (firstFrame) {
+        smooth.torsoPos.copy(torsoPos);
+        smooth.headPos.copy(headPos);
+        smooth.upperLPos.copy(upperLPos);
+        smooth.foreLPos.copy(foreLPos);
+        smooth.handLPos.copy(handLPos);
+        smooth.upperRPos.copy(upperRPos);
+        smooth.foreRPos.copy(foreRPos);
+        smooth.handRPos.copy(handRPos);
+        smooth.torsoQuat.copy(torsoQuat);
+        smooth.headQuat.copy(headQuat);
+        smooth.upperLQuat.copy(upperLQuat);
+        smooth.foreLQuat.copy(foreLQuat);
+        smooth.handLQuat.copy(handLQuat);
+        smooth.upperRQuat.copy(upperRQuat);
+        smooth.foreRQuat.copy(foreRQuat);
+        smooth.handRQuat.copy(handRQuat);
+        firstFrame = false;
+      } else {
+        smooth.torsoPos.lerp(torsoPos, POS_SMOOTH);
+        smooth.headPos.lerp(headPos, POS_SMOOTH);
+        smooth.upperLPos.lerp(upperLPos, POS_SMOOTH);
+        smooth.foreLPos.lerp(foreLPos, POS_SMOOTH);
+        smooth.handLPos.lerp(handLPos, POS_SMOOTH);
+        smooth.upperRPos.lerp(upperRPos, POS_SMOOTH);
+        smooth.foreRPos.lerp(foreRPos, POS_SMOOTH);
+        smooth.handRPos.lerp(handRPos, POS_SMOOTH);
+
+        smooth.torsoQuat.slerp(torsoQuat, QUAT_SMOOTH);
+        smooth.headQuat.slerp(headQuat, QUAT_SMOOTH);
+        smooth.upperLQuat.slerp(upperLQuat, QUAT_SMOOTH);
+        smooth.foreLQuat.slerp(foreLQuat, QUAT_SMOOTH);
+        smooth.handLQuat.slerp(handLQuat, QUAT_SMOOTH);
+        smooth.upperRQuat.slerp(upperRQuat, QUAT_SMOOTH);
+        smooth.foreRQuat.slerp(foreRQuat, QUAT_SMOOTH);
+        smooth.handRQuat.slerp(handRQuat, QUAT_SMOOTH);
+      }
 
       const result = {
-        torso: { pos: torsoPos, quat: torsoQuat },
-        head:  { pos: headPos,  quat: headQuat },
-        upperL:{ pos: upperLPos, quat: upperLQuat },
-        foreL: { pos: foreLPos,  quat: foreLQuat },
-        handL: { pos: handLPos,  quat: smoothHandLQuat.clone() },
-        upperR:{ pos: upperRPos, quat: upperRQuat },
-        foreR: { pos: foreRPos,  quat: foreRQuat },
-        handR: { pos: handRPos,  quat: smoothHandRQuat.clone() }
+        torso: { pos: smooth.torsoPos.clone(), quat: smooth.torsoQuat.clone() },
+        head:  { pos: smooth.headPos.clone(),  quat: smooth.headQuat.clone() },
+        upperL:{ pos: smooth.upperLPos.clone(), quat: smooth.upperLQuat.clone() },
+        foreL: { pos: smooth.foreLPos.clone(),  quat: smooth.foreLQuat.clone() },
+        handL: { pos: smooth.handLPos.clone(),  quat: smooth.handLQuat.clone() },
+        upperR:{ pos: smooth.upperRPos.clone(), quat: smooth.upperRQuat.clone() },
+        foreR: { pos: smooth.foreRPos.clone(),  quat: smooth.foreRQuat.clone() },
+        handR: { pos: smooth.handRPos.clone(),  quat: smooth.handRQuat.clone() }
       };
 
       const posOnly = {
@@ -466,12 +499,10 @@
       };
       applyGroundClamp(posOnly);
 
-      // Keep extra parts following the torso
       extraParts.forEach(p => {
         if (p.parent === 'torso') {
           p.mesh.position.copy(result.torso.pos);
-          p.mesh.position.y += 0.6 + (p.mesh.userData.yOff || 0.3);
-          p.mesh.position.x += (p.mesh.userData.xOff || 0);
+          p.mesh.position.y += 0.6;
         }
       });
 
@@ -498,7 +529,6 @@
 
       previewEyeL.visible = eyeToggle.checked;
       previewEyeR.visible = eyeToggle.checked;
-
       allCubes.forEach(c => c.visible = true);
     }
 
@@ -531,25 +561,19 @@
       const handR  = makeCube(0.20, 0.15, 0.11, handMat.clone(), 'hand.R');
 
       [torso, head, upperL, foreL, handL, upperR, foreR, handR].forEach(c => exportScene.add(c));
-
-      // also export extra parts
-      extraParts.forEach(p => {
-        const clone = p.mesh.clone();
-        exportScene.add(clone);
-      });
+      extraParts.forEach(p => exportScene.add(p.mesh.clone()));
 
       const times = [0, ...recordedFrames.map(f => f.t + 0.05)];
       const duration = times[times.length - 1] || 1;
 
       function makeTracks(name, getterPos, getterQuat) {
-        const posValues = [];
-        const quatValues = [];
+        const posValues = [], quatValues = [];
         const restPos = REST[name === 'torso' ? 'torso' : name === 'head' ? 'head' :
                             name === 'upper_arm.L' ? 'upperL' : name === 'forearm.L' ? 'foreL' :
                             name === 'hand.L' ? 'handL' : name === 'upper_arm.R' ? 'upperR' :
                             name === 'forearm.R' ? 'foreR' : 'handR'];
         posValues.push(restPos.x, restPos.y, restPos.z);
-        quatValues.push(0, 0, 0, 1);
+        quatValues.push(0,0,0,1);
         recordedFrames.forEach(frame => {
           const pose = computePose(frame.landmarks);
           const p = getterPos(pose);
@@ -580,9 +604,7 @@
         const blob = new Blob([JSON.stringify(result)], { type: 'model/gltf+json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url;
-        a.download = `monke-parts-${Date.now()}.gltf`;
-        a.click();
+        a.href = url; a.download = `monke-smooth-${Date.now()}.gltf`; a.click();
         URL.revokeObjectURL(url);
         statusEl.textContent = 'GLTF downloaded!';
       }, { animations: [clip], binary: false });
@@ -592,9 +614,7 @@
       const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      a.click();
+      a.href = url; a.download = filename; a.click();
       URL.revokeObjectURL(url);
     }
 
@@ -633,9 +653,7 @@
         const t = (performance.now() - startTime) / 1000;
         recordedFrames.push({
           t,
-          landmarks: results.poseLandmarks.map(lm => ({
-            x: lm.x, y: lm.y, z: lm.z, visibility: lm.visibility
-          }))
+          landmarks: results.poseLandmarks.map(lm => ({ x:lm.x, y:lm.y, z:lm.z, visibility:lm.visibility }))
         });
         if (recordedFrames.length % 30 === 0) {
           statusEl.textContent = `Recording… ${recordedFrames.length} frames`;
@@ -657,7 +675,7 @@
           width: 640, height: 480
         });
         cam.start();
-        statusEl.textContent = 'Ready! Move with your hands • Add parts • Nothing goes below 0';
+        statusEl.textContent = 'Ready! Smoothing is on — twitching should be much better.';
       } catch (err) {
         statusEl.textContent = 'Camera error: ' + err.message;
       }
