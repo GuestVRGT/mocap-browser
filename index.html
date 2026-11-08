@@ -1,645 +1,927 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Browser MonkeMocap 🐒</title>
-  <style>
-    * { box-sizing: border-box; }
-    body {
-      margin: 0; padding: 0; background: #0d1117; color: #e6edf3;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      overflow: hidden;
-    }
-    #ui {
-      position: absolute; top: 12px; left: 12px; z-index: 20;
-      background: rgba(13,17,23,0.95); padding: 14px 16px;
-      border-radius: 12px; border: 1px solid #30363d;
-      max-width: 360px; font-size: 13px; line-height: 1.4;
-    }
-    #ui h1 { margin: 0 0 4px; font-size: 17px; color: #7ee787; }
-    #ui p { margin: 0 0 8px; opacity: 0.85; font-size: 12px; }
-    .btn-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
-    button {
-      padding: 7px 11px; border: none; border-radius: 7px;
-      font-weight: 600; font-size: 12px; cursor: pointer;
-    }
-    button:active { transform: scale(0.96); }
-    #recordBtn { background: #da3633; color: white; }
-    #recordBtn.recording { background: #f85149; animation: pulse 1s infinite; }
-    #stopBtn { background: #21262d; color: #e6edf3; border: 1px solid #30363d; }
-    #downloadGltf { background: #8957e5; color: white; }
-    #addPartBtn { background: #c47a3a; color: white; }
-    #resetPosBtn { background: #444; color: white; }
-    .mode-btn { background: #30363d; color: #ccc; }
-    .mode-btn.active { background: #238636; color: white; }
-    button:disabled { opacity: 0.45; cursor: not-allowed; }
-    #partsList {
-      margin-top: 8px; max-height: 110px; overflow-y: auto;
-      background: #161b22; border-radius: 6px; padding: 5px; font-size: 12px;
-    }
-    #partsList .row {
-      padding: 4px 2px; display: flex; justify-content: space-between; align-items: center;
-      border-radius: 4px; cursor: pointer;
-    }
-    #partsList .row.selected { background: #30363d; }
-    #partsList button { padding: 2px 6px; font-size: 11px; background: #333; color: #ccc; }
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.7} }
-    #status { margin-top: 8px; font-size: 12px; color: #8b949e; }
-    #video {
-      position: absolute; bottom: 12px; right: 12px;
-      width: 130px; height: 98px; border: 2px solid #30363d;
-      border-radius: 10px; z-index: 10; transform: scaleX(-1);
-      object-fit: cover; background: #000;
-    }
-    #canvas-container { width: 100vw; height: 100vh; }
-    canvas { display: block; }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Monke Arena VR 🐒</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#8fd3ff;font-family:system-ui,-apple-system,sans-serif}
+  #hint{position:fixed;top:14px;left:14px;max-width:340px;z-index:5;background:rgba(20,28,20,.9);color:#eafcff;border:1px solid #3d5a3d;border-radius:12px;padding:12px 14px;font-size:13px;line-height:1.5}
+  #hint h1{margin:0 0 4px;font-size:17px;color:#9dff9d}
+</style>
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
 </head>
 <body>
-  <div id="ui">
-    <h1>Browser MonkeMocap 🐒</h1>
-    <p>GTAG movement • Drag camera • Select parts to transform</p>
-    <div class="btn-row">
-      <button id="recordBtn">● Record</button>
-      <button id="stopBtn" disabled>Stop</button>
-      <button id="addPartBtn">+ Part</button>
-      <button id="resetPosBtn">Reset</button>
-    </div>
-    <div class="btn-row">
-      <button class="mode-btn active" data-mode="move">Move</button>
-      <button class="mode-btn" data-mode="rotate">Rotate</button>
-      <button class="mode-btn" data-mode="scale">Scale</button>
-      <button id="downloadGltf" disabled>GLTF</button>
-    </div>
-    <div id="partsList"></div>
-    <div id="status">Waiting for camera…</div>
-  </div>
+<div id="hint">
+  <h1>Monke Arena VR 🐒</h1>
+  Open over HTTPS in the Meta Quest Browser and tap <b>ENTER VR</b>.<br>
+  Push off walls and floors to move. Pull to climb, drag along walls to wall-run, and let go to keep your momentum.
+</div>
 
-  <video id="video" playsinline muted></video>
-  <div id="canvas-container"></div>
+<script type="module">
+import * as THREE from 'three';
+import { VRButton } from 'three/addons/webxr/VRButton.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
+const V3 = THREE.Vector3, Q = THREE.Quaternion;
+const UP = new V3(0, 1, 0), FWD0 = new V3(0, 0, -1);
+const SIDES = ['left', 'right'];
 
-  <script>
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0d1117);
-    const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 100);
-    camera.position.set(0, 2.2, 6);
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(innerWidth, innerHeight);
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
-    document.getElementById('canvas-container').appendChild(renderer.domElement);
+/* ---------- Tuning ---------- */
+const HAND_R = 0.07;             // hand collider radius
+const FOOT_R = 0.3, FOOT_Y = 0.3;
+const CHEST_R = 0.3, CHEST_Y = 1.0;
+const BASE_ARM = { upper: 0.32, fore: 0.30 };
+const SHOULDER_DROP = 0.35;  
+const SUBSTEPS = 4;
+const PLANT_ACC = 120;
+const IMPACT_GAIN = 1.4;
+const MAX_SPEED = 20;
+const AIR_DRAG = 0.05;
+const FRICTION_K = 6;
+const PLANTED_GRAVITY = 0.25;
+const SNAP = Math.PI / 6;
+const PREDICT_T = 0.06;
+const HAND_SMOOTH = 40;
+const PART_NAMES = ['torso', 'head', 'upper_arm_L', 'forearm_L', 'hand_L', 'upper_arm_R', 'forearm_R', 'hand_R'];
 
-    // Orbit camera
-    const orbit = new THREE.OrbitControls(camera, renderer.domElement);
-    orbit.enableDamping = true;
-    orbit.dampingFactor = 0.08;
-    orbit.target.set(0, 1.4, 0);
-    orbit.maxPolarAngle = Math.PI * 0.92;
-    orbit.minDistance = 1.5;
-    orbit.maxDistance = 15;
+/* ---------- mods ---------- */
+const OPTS = {
+  arm: [1, 1.5, 2, 3],
+  power: [1, 1.4, 2],
+  gravity: [9.81, 5, 0],
+  predict: [true, false],
+};
+const GRAVITY_NAMES = ['Normal', 'Low', 'Zero'];
+const CFG = { arm: 0, power: 0, gravity: 0, predict: 0 };
+const cfgVal = k => OPTS[k][CFG[k]];
+const cycle = k => { CFG[k] = (CFG[k] + 1) % OPTS[k].length; };
 
-    // Transform controls for parts
-    const transform = new THREE.TransformControls(camera, renderer.domElement);
-    transform.setSize(0.85);
-    scene.add(transform);
-    transform.addEventListener('dragging-changed', (e) => {
-      orbit.enabled = !e.value;
-    });
+/* ---------- scene ---------- */
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.xr.enabled = true;
+document.body.appendChild(renderer.domElement);
+document.body.appendChild(VRButton.createButton(renderer, { optionalFeatures: ['local-floor'] }));
 
-    let currentMode = 'move';
-    transform.setMode('translate');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x8fd3ff);
+scene.fog = new THREE.Fog(0x8fd3ff, 30, 70);
 
-    document.querySelectorAll('.mode-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        currentMode = btn.dataset.mode;
-        if (currentMode === 'move') transform.setMode('translate');
-        if (currentMode === 'rotate') transform.setMode('rotate');
-        if (currentMode === 'scale') transform.setMode('scale');
-      });
-    });
+// rig 
+const rig = new THREE.Group();
+scene.add(rig);
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 150);
+camera.position.set(0, 1.6, 0);
+rig.add(camera);
 
-    scene.add(new THREE.AmbientLight(0x555555));
-    const light = new THREE.DirectionalLight(0xffffff, 1.15);
-    light.position.set(5, 12, 7);
-    scene.add(light);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x3a5a40, 1.4));
+const sun = new THREE.DirectionalLight(0xffffff, 1.0);
+sun.position.set(6, 12, 4);
+scene.add(sun);
 
-    const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(50, 50),
-      new THREE.MeshLambertMaterial({ color: 0x1a2332 })
+const spawnRing = new THREE.Mesh(
+  new THREE.RingGeometry(1.1, 1.25, 64),
+  new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6, side: THREE.DoubleSide })
+);
+spawnRing.rotation.x = -Math.PI / 2;
+spawnRing.position.y = 0.02;
+scene.add(spawnRing);
+
+/* ---------- idk what to say ---------- */
+const solids = [];
+function addBox(x, y, z, w, h, d, color, mu = 1, bounce = 0) {
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(w, h, d),
+    new THREE.MeshStandardMaterial({ color, roughness: 0.85 })
+  );
+  mesh.position.set(x, y + h / 2, z);
+  scene.add(mesh);
+  solids.push({
+    min: new V3(x - w / 2, y, z - d / 2),
+    max: new V3(x + w / 2, y + h, z + d / 2),
+    mu, bounce,
+  });
+}
+
+const WALL = 0x9c7a55, STONE = 0x6c5a9a;
+const PALETTE = [0x3fa34d, 0x58c26b, 0x2f8a6a, 0xd28b4a, 0x7b5cd6, 0x5a6fd6];
+
+addBox(0, -10, 0, 240, 10, 240, 0x5fae52, 1, 0);
+addBox(-12, 0, -12, 6, 0.02, 6, 0xcfefff, 0.03, 0);
+addBox(0, 0, 10, 2.4, 0.2, 2.4, 0xff7ad9, 1, 0.85);
+
+// walls
+addBox(0, 0, -16, 34, 8, 1, WALL);
+addBox(0, 0, 16, 34, 8, 1, WALL);
+addBox(-16, 0, 0, 1, 8, 32, WALL);
+addBox(16, 0, 0, 1, 8, 32, WALL);
+
+// Long wall
+addBox(-4, 0, 6, 12, 4, 0.8, STONE);
+
+// Tall pillar
+addBox(-13, 0, -4, 1.2, 7, 1.2, STONE);
+addBox(5, 0, -6, 1.5, 6, 1.5, STONE);
+
+// Stepped pyramid
+for (let i = 0; i < 5; i++) {
+  const s = 4.5 - i * 0.8;
+  addBox(-6, i * 0.5, -6, s, 0.5, s, PALETTE[i % PALETTE.length]);
+}
+
+// tower with a ledge to pull yourself onto
+addBox(7, 0, 5, 2.5, 4, 2.5, 0x5a6fd6);
+addBox(7, 4, 5, 3.5, 0.4, 3.5, 0x8fd67a);
+
+// staircase
+for (let i = 0; i < 8; i++) {
+  addBox(-14 + i, 0, 11, 1, 0.3 * (i + 1), 3, PALETTE[(i + 2) % PALETTE.length]);
+}
+
+/* ---------- collision ---------- */
+const _cp = new V3();
+
+function newContact() {
+  return { hit: false, depth: 0, n: new V3(), nn: new V3(), mu: 1, bounce: 0 };
+}
+function clearContact(c) {
+  c.hit = false; c.depth = 0;
+  c.n.set(0, 0, 0); c.nn.set(0, 0, 0);
+  c.mu = 1; c.bounce = 0;
+}
+function finishContact(c) {
+  if (c.hit && c.n.lengthSq() > 1e-10) c.nn.copy(c.n).normalize();
+}
+
+// pishes sphere p (radius r) out of every solid and records the contact
+function resolve(p, r, c) {
+  for (const b of solids) {
+    _cp.set(
+      THREE.MathUtils.clamp(p.x, b.min.x, b.max.x),
+      THREE.MathUtils.clamp(p.y, b.min.y, b.max.y),
+      THREE.MathUtils.clamp(p.z, b.min.z, b.max.z)
     );
-    ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true;
-    scene.add(ground);
+    const dx = p.x - _cp.x, dy = p.y - _cp.y, dz = p.z - _cp.z;
+    const d2 = dx * dx + dy * dy + dz * dz;
+    if (d2 >= r * r) continue;
 
-    const grid = new THREE.GridHelper(40, 40, 0x30363d, 0x21262d);
-    grid.position.y = 0.01;
-    scene.add(grid);
-
-    const torsoMat = new THREE.MeshStandardMaterial({ color: 0x8B4513, roughness: 0.4 });
-    const headMat  = new THREE.MeshStandardMaterial({ color: 0xA0522D, roughness: 0.4 });
-    const armMat   = new THREE.MeshStandardMaterial({ color: 0xCD853F, roughness: 0.4 });
-    const handMat  = new THREE.MeshStandardMaterial({ color: 0xDEB887, roughness: 0.35 });
-    const extraMat = new THREE.MeshStandardMaterial({ color: 0x6b8e23, roughness: 0.4 });
-
-    function makeCube(w, h, d, mat, name) {
-      const geo = new THREE.BoxGeometry(w, h, d);
-      if (name !== 'head' && !name.startsWith('hand') && !name.startsWith('extra')) {
-        geo.translate(0, -h/2, 0);
-      }
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.name = name;
-      return mesh;
+    let nx, ny, nz, depth;
+    if (d2 > 1e-10) {
+      const d = Math.sqrt(d2);
+      nx = dx / d; ny = dy / d; nz = dz / d;
+      depth = r - d;
+    } else {
+      // centre is inside the box: leave through the nearest face
+      const lx = p.x - b.min.x, rx = b.max.x - p.x;
+      const ly = p.y - b.min.y, ry = b.max.y - p.y;
+      const lz = p.z - b.min.z, rz = b.max.z - p.z;
+      const m = Math.min(lx, rx, ly, ry, lz, rz);
+      nx = 0; ny = 0; nz = 0;
+      if (m === lx)      { nx = -1; depth = lx + r; }
+      else if (m === rx) { nx = 1;  depth = rx + r; }
+      else if (m === ly) { ny = -1; depth = ly + r; }
+      else if (m === ry) { ny = 1;  depth = ry + r; }
+      else if (m === lz) { nz = -1; depth = lz + r; }
+      else               { nz = 1;  depth = rz + r; }
     }
 
-    const previewTorso = makeCube(0.52, 0.85, 0.36, torsoMat, 'torso');
-    const previewHead  = makeCube(0.38, 0.38, 0.38, headMat, 'head');
-    const previewUpperL = makeCube(0.16, 0.45, 0.16, armMat, 'upper_arm.L');
-    const previewForeL  = makeCube(0.14, 0.40, 0.14, armMat, 'forearm.L');
-    const previewHandL  = makeCube(0.20, 0.15, 0.11, handMat, 'hand.L');
-    const previewUpperR = makeCube(0.16, 0.45, 0.16, armMat, 'upper_arm.R');
-    const previewForeR  = makeCube(0.14, 0.40, 0.14, armMat, 'forearm.R');
-    const previewHandR  = makeCube(0.20, 0.15, 0.11, handMat, 'hand.R');
+    p.x += nx * depth; p.y += ny * depth; p.z += nz * depth;
+    c.hit = true;
+    c.n.x += nx * depth; c.n.y += ny * depth; c.n.z += nz * depth;
+    if (depth > c.depth) { c.depth = depth; c.mu = b.mu; c.bounce = b.bounce; }
+  }
+}
 
-    const bodyMeshes = [previewTorso, previewHead, previewUpperL, previewForeL, previewHandL, previewUpperR, previewForeR, previewHandR];
-    bodyMeshes.forEach(c => { scene.add(c); c.visible = false; });
+/* ---------- monke ---------- */
+const palmGeo = new THREE.BoxGeometry(0.12, 0.045, 0.12);
+const segA = new THREE.CapsuleGeometry(0.014, 0.03, 4, 8).rotateX(Math.PI / 2);
+const segB = new THREE.CapsuleGeometry(0.012, 0.022, 4, 8).rotateX(Math.PI / 2);
+const torsoGeo = new THREE.SphereGeometry(1, 24, 16);
+const headGeo = new THREE.SphereGeometry(0.16, 24, 16);
+const limbGeo = new THREE.CylinderGeometry(0.055, 0.045, 1, 12);
+const handExportGeo = palmGeo.clone().translate(0, 0, -0.06);
+const eyeGeo = new THREE.SphereGeometry(0.045, 16, 12);
+const pupilGeo = new THREE.SphereGeometry(0.022, 12, 8);
+const snoutGeo = new THREE.SphereGeometry(0.075, 16, 12);
+const earGeo = new THREE.SphereGeometry(0.05, 12, 10);
+const tailGeo = new THREE.SphereGeometry(0.045, 12, 10);
 
-    // ===== GTAG-style free movement =====
-    let bodyOffset = new THREE.Vector3();
-    let bodyVelocity = new THREE.Vector3();
-    let lastHandCenter = null;
-    let lastHandL = null;
-    let lastHandR = null;
+const MAT = {
+  fur: new THREE.MeshStandardMaterial({ color: 0x6b4226, roughness: 0.9 }),
+  arm: new THREE.MeshStandardMaterial({ color: 0x7a4e2c, roughness: 0.9 }),
+  hand: new THREE.MeshStandardMaterial({ color: 0x3b2716, roughness: 0.85 }),
+  face: new THREE.MeshStandardMaterial({ color: 0xd8b08c, roughness: 0.7 }),
+  white: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 }),
+  black: new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.3 }),
+};
 
-    // Smoothing
-    const smooth = {
-      torsoPos: new THREE.Vector3(), headPos: new THREE.Vector3(),
-      upperLPos: new THREE.Vector3(), foreLPos: new THREE.Vector3(), handLPos: new THREE.Vector3(),
-      upperRPos: new THREE.Vector3(), foreRPos: new THREE.Vector3(), handRPos: new THREE.Vector3(),
-      torsoQuat: new THREE.Quaternion(), headQuat: new THREE.Quaternion(),
-      upperLQuat: new THREE.Quaternion(), foreLQuat: new THREE.Quaternion(), handLQuat: new THREE.Quaternion(),
-      upperRQuat: new THREE.Quaternion(), foreRQuat: new THREE.Quaternion(), handRQuat: new THREE.Quaternion()
-    };
-    let firstFrame = true;
-    const POS_SMOOTH = 0.28;
-    const QUAT_SMOOTH = 0.22;
+const torsoMesh = new THREE.Mesh(torsoGeo, MAT.fur);
+torsoMesh.scale.set(0.2, 0.26, 0.17);
+scene.add(torsoMesh);
 
-    const REST = {
-      torso:  new THREE.Vector3(0, 1.35, 0),
-      head:   new THREE.Vector3(0, 1.95, 0),
-      upperL: new THREE.Vector3(-0.48, 1.65, 0),
-      foreL:  new THREE.Vector3(-0.80, 1.35, 0),
-      handL:  new THREE.Vector3(-1.05, 1.12, 0),
-      upperR: new THREE.Vector3( 0.48, 1.65, 0),
-      foreR:  new THREE.Vector3( 0.80, 1.35, 0),
-      handR:  new THREE.Vector3( 1.05, 1.12, 0)
-    };
+const headMesh = new THREE.Mesh(headGeo, MAT.fur);
+headMesh.scale.set(1, 0.95, 1);
+scene.add(headMesh);
+(function addFace(parent) {
+  for (const x of [-0.065, 0.065]) {
+    const eye = new THREE.Mesh(eyeGeo, MAT.white);
+    eye.position.set(x, 0.03, -0.13);
+    const pupil = new THREE.Mesh(pupilGeo, MAT.black);
+    pupil.position.set(0, 0, -0.035);
+    eye.add(pupil);
+    parent.add(eye);
+  }
+  const snout = new THREE.Mesh(snoutGeo, MAT.face);
+  snout.position.set(0, -0.055, -0.12);
+  snout.scale.set(1, 0.8, 1);
+  parent.add(snout);
+  for (const x of [-0.155, 0.155]) {
+    const ear = new THREE.Mesh(earGeo, MAT.fur);
+    ear.position.set(x, 0.07, 0);
+    parent.add(ear);
+  }
+})(headMesh);
 
-    let extraParts = [];
-    let partCounter = 0;
-    let selectedPart = null;
+const tails = [0, 1, 2, 3].map(i => {
+  const m = new THREE.Mesh(tailGeo, MAT.fur);
+  m.scale.setScalar(1 - i * 0.15);
+  scene.add(m);
+  return m;
+});
 
-    let recording = false;
-    let recordedFrames = [];
-    let startTime = 0;
+const arms = {
+  L: { upper: new THREE.Mesh(limbGeo, MAT.arm), fore: new THREE.Mesh(limbGeo, MAT.arm) },
+  R: { upper: new THREE.Mesh(limbGeo, MAT.arm), fore: new THREE.Mesh(limbGeo, MAT.arm) },
+};
+scene.add(arms.L.upper, arms.L.fore, arms.R.upper, arms.R.fore);
 
-    const recordBtn = document.getElementById('recordBtn');
-    const stopBtn = document.getElementById('stopBtn');
-    const downloadGltf = document.getElementById('downloadGltf');
-    const addPartBtn = document.getElementById('addPartBtn');
-    const resetPosBtn = document.getElementById('resetPosBtn');
-    const statusEl = document.getElementById('status');
-    const partsList = document.getElementById('partsList');
+function buildHand(side) {
+  const root = new THREE.Group();
+  const palm = new THREE.Mesh(palmGeo, MAT.hand);
+  palm.position.set(0, 0, -0.06);
+  root.add(palm);
+  const specs = [
+    { x: -side * 0.038, z: -0.105, yaw: 0 },
+    { x: 0,             z: -0.11,  yaw: 0 },
+    { x: side * 0.058,  z: -0.07,  yaw: -side * 0.7 },
+  ];
+  const fingers = specs.map(s => {
+    const r = new THREE.Group();
+    r.rotation.order = 'YXZ';
+    r.position.set(s.x, -0.005, s.z);
+    const a = new THREE.Mesh(segA, MAT.hand);
+    a.position.z = -0.029;
+    r.add(a);
+    const joint = new THREE.Group();
+    joint.position.z = -0.058;
+    r.add(joint);
+    const b = new THREE.Mesh(segB, MAT.hand);
+    b.position.z = -0.023;
+    joint.add(b);
+    root.add(r);
+    return { root: r, joint, yaw: s.yaw };
+  });
+  scene.add(root);
+  return { root, fingers };
+}
 
-    // ===== Add Part =====
-    addPartBtn.addEventListener('click', () => {
-      partCounter++;
-      const name = 'extra_' + partCounter;
-      const cube = makeCube(0.25, 0.25, 0.25, extraMat.clone(), name);
-      cube.position.set(
-        bodyOffset.x + (Math.random()-0.5)*1.2,
-        1.2 + Math.random()*0.6,
-        bodyOffset.z + (Math.random()-0.5)*1.2
-      );
-      cube.userData.isExtra = true;
-      scene.add(cube);
-      extraParts.push({ mesh: cube, name });
-      selectPart(cube);
-      updatePartsList();
-      statusEl.textContent = 'Added ' + name + ' — use Move/Rotate/Scale';
-    });
+function makeHand(side) {
+  return {
+    side, ...buildHand(side === 'left' ? -1 : 1),
+    slot: null, active: false, curl: [0, 0, 0],
+    target: new V3(),              // controller
+    prevTarget: new V3(), hasPrev: false,
+    u: new V3(),                   // hand velocity idk
+    uw: new V3(),                  // same, world space
+    world: new V3(),               // hand target in world space that frame
+    touching: false,
+    H: new V3(), prevH: new V3(), hInit: false,  // physical hand collided
+    vis: new V3(), quat: new Q(),                 // visual hand smoothed
+  };
+}
+const H = { left: makeHand('left'), right: makeHand('right') };
 
-    function selectPart(mesh) {
-      selectedPart = mesh;
-      transform.attach(mesh);
-      updatePartsList();
+function applyFingers(h) {
+  h.fingers.forEach((f, i) => {
+    const c = h.curl[i];
+    f.root.rotation.set(-c * 0.9, f.yaw, 0);
+    f.joint.rotation.x = -c * 1.15;
+  });
+}
+
+/* ---------- cantrolers ---------- */
+const menuRaycaster = new THREE.Raycaster();
+const ctrlSlots = [0, 1].map(i => {
+  const ctrl = renderer.xr.getController(i);
+  const grip = renderer.xr.getControllerGrip(i);
+  rig.add(ctrl, grip);
+  const laser = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([new V3(0, 0, 0), new V3(0, 0, -1)]),
+    new THREE.LineBasicMaterial({ color: 0x9dff9d })
+  );
+  laser.scale.z = 3;
+  laser.visible = false;
+  ctrl.add(laser);
+  const slot = { ctrl, grip, hand: null, laser };
+  ctrl.addEventListener('connected', e => { slot.hand = e.data.handedness; laser.visible = true; });
+  ctrl.addEventListener('disconnected', () => { slot.hand = null; laser.visible = false; });
+  ctrl.addEventListener('selectstart', () => {
+    const b = menuButtonFromController(ctrl);
+    if (b && b.fn) b.fn();
+  });
+  return slot;
+});
+const slotFor = side => ctrlSlots.find(s => s.hand === side) || null;
+
+/* ---------- meth helpers ---------- */
+const _t1 = new V3(), _s = new V3(), _d = new V3(), _w = new V3(), _tmp = new V3(), _pr = new V3();
+const _shL = new V3();   // shoulder line in rig space
+
+function solveArm(sh, wr, pole, a1, a2) {
+  const dir = new V3().subVectors(wr, sh);
+  let d = dir.length();
+  const maxD = (a1 + a2) * 0.999;
+  if (d > maxD) { dir.setLength(maxD); d = maxD; }
+  if (d < 1e-4) return sh.clone().addScaledVector(UP, -a1);
+  dir.normalize();
+  const a = (a1 * a1 - a2 * a2 + d * d) / (2 * d);
+  const h = Math.sqrt(Math.max(0, a1 * a1 - a * a));
+  const base = sh.clone().addScaledVector(dir, a);
+  const p = pole.clone().addScaledVector(dir, -pole.dot(dir));
+  if (p.lengthSq() < 1e-6) p.copy(UP).negate();
+  p.normalize();
+  return base.addScaledVector(p, h);
+}
+
+function placeSegment(mesh, a, b) {
+  const d = new V3().subVectors(b, a);
+  const len = d.length();
+  if (len < 1e-5) return;
+  mesh.position.copy(a).addScaledVector(d, 0.5);
+  mesh.quaternion.setFromUnitVectors(UP, d.normalize());
+  mesh.scale.set(1, len, 1);
+}
+
+const _rotTmp = new Q();
+function rotateRigAround(point, angle) {
+  _rotTmp.setFromAxisAngle(UP, angle);
+  rig.position.sub(point).applyQuaternion(_rotTmp).add(point);
+  rig.quaternion.premultiply(_rotTmp);
+}
+
+/* ---------- imput ---------- */
+const prevBtn = {};
+const edge = (key, down) => { const was = !!prevBtn[key]; prevBtn[key] = down; return down && !was; };
+function readInput() {
+  const out = {
+    turn: 0,
+    fingers: { left: [0, 0, 0], right: [0, 0, 0] },
+    menuEdge: false, recordEdge: false,
+  };
+  const session = renderer.xr.getSession();
+  if (!session) return out;
+  for (const src of session.inputSources) {
+    const gp = src.gamepad, hand = src.handedness;
+    if (!gp || (hand !== 'left' && hand !== 'right')) continue;
+    const ax = gp.axes;
+    const sx = ax.length >= 4 ? ax[2] : (ax[0] || 0);
+    const bv = i => (gp.buttons[i] ? gp.buttons[i].value : 0);
+    const bp = i => (gp.buttons[i] ? gp.buttons[i].pressed : false);
+
+    out.fingers[hand] = [bv(0), bv(1), Math.max(bv(4), bv(5))];
+
+    if (hand === 'left') {
+      if (edge('menu', bp(4))) out.menuEdge = true;
+    } else {
+      out.turn += sx;
+      if (edge('rec', bp(4))) out.recordEdge = true;
+    }
+  }
+  return out;
+}
+
+/* ---------- facing and snap turn ---------- */
+const _fwd = new V3(), _right = new V3(), _head = new V3();
+function facing() {
+  camera.getWorldDirection(_fwd);
+  _fwd.y = 0;
+  if (_fwd.lengthSq() < 1e-4) _fwd.set(0, 0, -1);
+  _fwd.normalize();
+  _right.crossVectors(_fwd, UP).normalize();
+}
+
+let turnLatch = false;
+function snapTurn(turn) {
+  if (Math.abs(turn) > 0.7) {
+    if (!turnLatch) {
+      camera.getWorldPosition(_head);
+      rotateRigAround(_head, -Math.sign(turn) * SNAP);
+      turnLatch = true;
+    }
+  } else if (Math.abs(turn) < 0.3) turnLatch = false;
+}
+
+/* ---------- random shi ig ---------- */
+const touchC = newContact();
+const sweepC = newContact();
+function touchesSurface(p) {
+  clearContact(touchC);
+  _tmp.copy(p);
+  resolve(_tmp, HAND_R, touchC);
+  return touchC.hit && touchC.depth > 0.002;
+}
+
+let plantedCount = 0;
+const plantedDesired = new V3();
+const body = { vel: new V3() };
+
+function updateHandTargets(dt, armScale, power) {
+  camera.getWorldPosition(_w);
+  rig.worldToLocal(_w);
+  _shL.copy(_w);
+  _shL.y -= SHOULDER_DROP;
+
+  plantedCount = 0;
+  plantedDesired.set(0, 0, 0);
+
+  for (const side of SIDES) {
+    const h = H[side];
+    const slot = slotFor(side);
+    if (!slot) {
+      h.active = false; h.touching = false; h.hasPrev = false; h.hInit = false;
+      continue;
+    }
+    h.active = true;
+
+    // controller in rig spac
+    slot.grip.getWorldPosition(_w);
+    rig.worldToLocal(_w);
+    _t1.subVectors(_w, _shL).multiplyScalar(armScale);
+    h.target.copy(_shL).add(_t1);
+
+    // hand velocity relative to the body (so walking and turning don't count)
+    if (h.hasPrev && dt > 1e-4) {
+      _t1.subVectors(h.target, h.prevTarget).multiplyScalar(1 / dt);
+      h.u.lerp(_t1, 0.6);
+    }
+    h.prevTarget.copy(h.target);
+    h.hasPrev = true;
+
+    h.uw.copy(h.u).applyQuaternion(rig.quaternion);
+    h.world.copy(h.target);
+    rig.localToWorld(h.world);
+
+    // the hand's motion kicks the body the other way?
+    const touching = touchesSurface(h.world);
+    if (touching && !h.touching && h.hInit) {
+      body.vel.addScaledVector(h.uw, -IMPACT_GAIN * power);
+    }
+    h.touching = touching;
+
+    if (touching) {
+      plantedCount++;
+      plantedDesired.addScaledVector(h.uw, -1);
+    }
+  }
+  if (plantedCount) plantedDesired.multiplyScalar(1 / plantedCount);
+  return plantedCount;
+}
+
+/* ---------- body physics ---------- */
+const feet = newContact(), chest = newContact();
+const _bp = new V3(), _dv = new V3();
+
+function collideBody(y, r, c) {
+  _bp.copy(rig.position);
+  _bp.y += y;
+  resolve(_bp, r, c);
+  rig.position.set(_bp.x, _bp.y - y, _bp.z);
+}
+
+function respawn() {
+  rig.position.set(0, 0, 0);
+  rig.quaternion.identity();
+  body.vel.set(0, 0, 0);
+  for (const s of SIDES) H[s].hInit = false;
+  setStatus('Back at spawn');
+}
+
+function stepBody(dt, planted, des) {
+  const G = cfgVal('gravity');
+
+  if (planted) {
+    // accelerate toward the velocity that keeps the hand still
+    // Gravity is reduced so wall-running probally works?
+    body.vel.y -= G * PLANTED_GRAVITY * dt;
+    _dv.subVectors(des, body.vel);
+    const maxDv = PLANT_ACC * dt;
+    if (_dv.length() > maxDv) _dv.setLength(maxDv);
+    body.vel.add(_dv);
+  } else {
+    // gravity and light air drag, so momentum carries through
+    body.vel.y -= G * dt;
+    body.vel.multiplyScalar(Math.exp(-AIR_DRAG * dt));
+  }
+  if (body.vel.length() > MAX_SPEED) body.vel.setLength(MAX_SPEED);
+
+  rig.position.addScaledVector(body.vel, dt);
+
+  // Collision: feet then chest
+  clearContact(feet); clearContact(chest);
+  collideBody(FOOT_Y, FOOT_R, feet);
+  collideBody(CHEST_Y, CHEST_R, chest);
+
+  let grounded = false, mu = 1;
+  for (const c of [feet, chest]) {
+    if (!c.hit) continue;
+    finishContact(c);
+    const vn = body.vel.dot(c.nn);
+    if (vn < 0) body.vel.addScaledVector(c.nn, -vn * (1 + c.bounce));
+    if (c === feet && c.nn.y > 0.5) { grounded = true; mu = c.mu; }
+  }
+
+  // Ground friction
+  if (grounded && !planted) {
+    const f = Math.exp(-mu * FRICTION_K * dt);
+    body.vel.x *= f;
+    body.vel.z *= f;
+  }
+
+  if (rig.position.y < -20) respawn();
+}
+
+/* ---------- sweep against the level ---------- */
+function moveHand(h, T) {
+  _s.copy(h.prevH);
+  _d.subVectors(T, h.prevH).multiplyScalar(1 / SUBSTEPS);
+  for (let i = 0; i < SUBSTEPS; i++) {
+    _s.add(_d);
+    clearContact(sweepC);
+    resolve(_s, HAND_R, sweepC);
+  }
+  h.H.copy(_s);
+}
+
+function moveHands(dt) {
+  rig.updateMatrixWorld(true);
+  const predictOn = cfgVal('predict');
+
+  for (const side of SIDES) {
+    const h = H[side];
+    const slot = slotFor(side);
+    if (!slot) { h.root.visible = false; continue; }
+    h.root.visible = true;
+
+    h.world.copy(h.target);
+    rig.localToWorld(h.world);
+
+    if (!h.hInit) {
+      h.prevH.copy(h.world);
+      h.H.copy(h.world);
+      h.vis.copy(h.world);
+      h.hInit = true;
     }
 
-    function updatePartsList() {
-      partsList.innerHTML = '';
-      extraParts.forEach((p, i) => {
-        const row = document.createElement('div');
-        row.className = 'row' + (selectedPart === p.mesh ? ' selected' : '');
-        row.innerHTML = `<span>${p.name}</span>`;
-        row.onclick = () => selectPart(p.mesh);
-        const del = document.createElement('button');
-        del.textContent = 'x';
-        del.onclick = (e) => {
-          e.stopPropagation();
-          if (selectedPart === p.mesh) {
-            transform.detach();
-            selectedPart = null;
-          }
-          scene.remove(p.mesh);
-          extraParts.splice(i, 1);
-          updatePartsList();
-        };
-        row.appendChild(del);
-        partsList.appendChild(row);
-      });
+    moveHand(h, h.world);
+
+    slot.grip.getWorldQuaternion(h.quat);
+    h.root.quaternion.copy(h.quat);
+
+    if (h.touching) {
+      h.vis.copy(h.H); 
+    } else {
+      _pr.copy(h.H);
+      if (predictOn) _pr.addScaledVector(h.uw, PREDICT_T);
+      h.vis.lerp(_pr, 1 - Math.exp(-HAND_SMOOTH * dt));
     }
+    h.root.position.copy(h.vis);
+    h.prevH.copy(h.H);
+  }
+}
 
-    // Click empty space to deselect
-    renderer.domElement.addEventListener('pointerdown', (e) => {
-      if (transform.dragging) return;
-      // simple raycast for part selection could be added later
-    });
+/* ---------- head, torso, tail, IK arms ---------- */
+const _torso = new V3(), _shW = new V3(), _pole = new V3(), _back = new V3();
+const _yaw = new Q();
 
-    resetPosBtn.addEventListener('click', () => {
-      bodyOffset.set(0, 0, 0);
-      bodyVelocity.set(0, 0, 0);
-      lastHandCenter = null;
-      lastHandL = null;
-      lastHandR = null;
-      firstFrame = true;
-      statusEl.textContent = 'Position reset to origin.';
-    });
+function updateBody(t) {
+  const armUp = BASE_ARM.upper * cfgVal('arm');
+  const armFore = BASE_ARM.fore * cfgVal('arm');
 
-    recordBtn.addEventListener('click', () => {
-      recording = true;
-      recordedFrames = [];
-      startTime = performance.now();
-      recordBtn.classList.add('recording');
-      recordBtn.textContent = '● Recording…';
-      recordBtn.disabled = true;
-      stopBtn.disabled = false;
-      downloadGltf.disabled = true;
-      statusEl.textContent = 'Recording…';
-    });
+  camera.getWorldPosition(_head);
+  facing();
+  _yaw.setFromUnitVectors(FWD0, _fwd);
 
-    stopBtn.addEventListener('click', () => {
-      recording = false;
-      recordBtn.classList.remove('recording');
-      recordBtn.textContent = '● Record';
-      recordBtn.disabled = false;
-      stopBtn.disabled = true;
-      downloadGltf.disabled = recordedFrames.length === 0;
-      statusEl.textContent = `Stopped. ${recordedFrames.length} frames.`;
-    });
+  _torso.copy(_head).addScaledVector(UP, -0.42);
+  torsoMesh.position.copy(_torso);
+  torsoMesh.quaternion.copy(_yaw);
 
-    function lmToPos(lm) {
-      return new THREE.Vector3(
-        (lm.x - 0.5) * 2.6,
-        (0.5 - lm.y) * 2.6 + 0.4,
-        -lm.z * 1.6
-      );
+  headMesh.position.copy(_head).addScaledVector(UP, -0.12);
+  headMesh.quaternion.copy(_yaw);
+
+  _back.copy(_fwd).negate();
+  tails.forEach((m, i) => {
+    m.position.copy(_torso)
+      .addScaledVector(_back, 0.22 + 0.07 * i)
+      .addScaledVector(UP, -0.05 - i * 0.03 + Math.sin(t * 2.2 + i) * 0.03);
+  });
+
+  for (const side of SIDES) {
+    const s = side === 'left' ? -1 : 1;
+    const key = side === 'left' ? 'L' : 'R';
+    const h = H[side];
+
+    _shW.copy(_torso).addScaledVector(UP, 0.16).addScaledVector(_right, s * 0.22);
+
+    const wrist = h.active
+      ? h.vis
+      : _shW.clone().addScaledVector(_fwd, 0.2).addScaledVector(UP, -0.4).addScaledVector(_right, s * 0.05);
+
+    _pole.copy(_right).multiplyScalar(s * 0.7).addScaledVector(UP, -0.7).addScaledVector(_fwd, -0.3);
+    const elbow = solveArm(_shW, wrist, _pole, armUp, armFore);
+    placeSegment(arms[key].upper, _shW, elbow);
+    placeSegment(arms[key].fore, elbow, wrist);
+  }
+}
+
+/* ---------- Menu panel ---------- */
+const menuCanvas = document.createElement('canvas');
+menuCanvas.width = 1024; menuCanvas.height = 1100;
+const mctx = menuCanvas.getContext('2d');
+const menuTex = new THREE.CanvasTexture(menuCanvas);
+menuTex.colorSpace = THREE.SRGBColorSpace;
+const menuMesh = new THREE.Mesh(
+  new THREE.PlaneGeometry(1.6, 1.72),
+  new THREE.MeshBasicMaterial({ map: menuTex, transparent: true })
+);
+menuMesh.visible = false;
+scene.add(menuMesh);
+
+let status = 'Press ENTER VR to start';
+let menuHover = null;
+let buttons = [];
+let frames = [];
+let recording = false;
+let recStart = 0;
+
+function roundRect(c, x, y, w, h, r) {
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.arcTo(x + w, y, x + w, y + h, r);
+  c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r);
+  c.arcTo(x, y, x + w, y, r);
+  c.closePath();
+}
+
+function menuButtonsList() {
+  const hasFrames = frames.length > 0;
+  const col = [40, 544], row = i => 170 + i * 150, W = 440, H_ = 130;
+  return [
+    { id: 'arm', label: 'Arm length', sub: `${cfgVal('arm')}x`, color: '#58a6ff',
+      x: col[0], y: row(0), w: W, h: H_, fn: () => cycle('arm') },
+    { id: 'power', label: 'Launch power', sub: `${cfgVal('power')}x`, color: '#3fb950',
+      x: col[1], y: row(0), w: W, h: H_, fn: () => cycle('power') },
+    { id: 'predict', label: 'Prediction', sub: cfgVal('predict') ? 'on' : 'off', color: '#a371f7',
+      x: col[0], y: row(1), w: W, h: H_, fn: () => cycle('predict') },
+    { id: 'gravity', label: 'Gravity', sub: GRAVITY_NAMES[CFG.gravity], color: '#d29922',
+      x: col[1], y: row(1), w: W, h: H_, fn: () => cycle('gravity') },
+    { id: 'rec', label: recording ? 'Stop' : 'Record', sub: recording ? `${frames.length} frames` : 'start a take',
+      color: recording ? '#f85149' : '#da3633', x: col[0], y: row(2), w: W, h: H_, fn: toggleRecord },
+    { id: 'exp', label: 'Export GLTF', sub: hasFrames ? `${frames.length} frames` : 'record first',
+      color: '#8957e5', x: col[1], y: row(2), w: W, h: H_, fn: exportGltf, disabled: !hasFrames },
+    { id: 'clear', label: 'Clear take', sub: 'discard recording', color: '#00bfa6',
+      x: col[0], y: row(3), w: W, h: H_, fn: () => { frames = []; setStatus('Take cleared'); } },
+    { id: 'spawn', label: 'Back to spawn', sub: 'reset position', color: '#ff7a59',
+      x: col[1], y: row(3), w: W, h: H_, fn: respawn },
+    { id: 'reset', label: 'Reset mods', sub: 'back to defaults', color: '#6e7681',
+      x: col[0], y: row(4), w: W, h: H_, fn: () => { for (const k in CFG) CFG[k] = 0; setStatus('Mods reset'); } },
+    { id: 'close', label: 'Close menu', color: '#30363d', x: 40, y: 950, w: 944, h: 110,
+      fn: () => toggleMenu(false) },
+  ];
+}
+
+function drawButton(c, b) {
+  const hot = menuHover === b.id;
+  roundRect(c, b.x, b.y, b.w, b.h, 26);
+  c.fillStyle = b.color + (b.disabled ? '22' : '55');
+  c.fill();
+  c.lineWidth = hot ? 8 : 3;
+  c.strokeStyle = hot ? '#9dff9d' : 'rgba(255,255,255,0.15)';
+  c.stroke();
+  c.globalAlpha = b.disabled ? 0.4 : 1;
+  c.textAlign = 'center';
+  c.textBaseline = 'middle';
+  c.fillStyle = '#eafcff';
+  c.font = '600 44px system-ui, sans-serif';
+  c.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2 - (b.sub ? 18 : 0));
+  if (b.sub) {
+    c.fillStyle = 'rgba(200,230,255,0.75)';
+    c.font = '26px system-ui, sans-serif';
+    c.fillText(b.sub, b.x + b.w / 2, b.y + b.h / 2 + 34);
+  }
+  c.globalAlpha = 1;
+}
+
+function drawMenu() {
+  const c = mctx;
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.clearRect(0, 0, menuCanvas.width, menuCanvas.height);
+  roundRect(c, 8, 8, menuCanvas.width - 16, menuCanvas.height - 16, 40);
+  c.fillStyle = 'rgba(20,28,20,0.95)';
+  c.fill();
+  c.lineWidth = 4;
+  c.strokeStyle = 'rgba(157,255,157,0.4)';
+  c.stroke();
+  c.textAlign = 'left';
+  c.textBaseline = 'middle';
+  c.fillStyle = '#9dff9d';
+  c.font = '700 52px system-ui, sans-serif';
+  c.fillText('Monke Arena', 50, 70);
+  c.fillStyle = '#a7c4a7';
+  c.font = '28px system-ui, sans-serif';
+  c.fillText(status, 50, 120);
+  buttons = menuButtonsList();
+  buttons.forEach(b => drawButton(c, b));
+  menuTex.needsUpdate = true;
+}
+
+function menuHitUV(uv) {
+  if (!uv) return null;
+  const x = uv.x * menuCanvas.width, y = (1 - uv.y) * menuCanvas.height;
+  return buttons.find(b => !b.disabled && x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) || null;
+}
+
+const _ro = new V3(), _rd = new V3(), _rq = new Q();
+function menuButtonFromController(ctrl) {
+  if (!menuMesh.visible) return null;
+  ctrl.getWorldPosition(_ro);
+  _rd.set(0, 0, -1).applyQuaternion(ctrl.getWorldQuaternion(_rq));
+  menuRaycaster.set(_ro, _rd);
+  const hit = menuRaycaster.intersectObject(menuMesh, false)[0];
+  return hit ? menuHitUV(hit.uv) : null;
+}
+
+function setStatus(t) { status = t; drawMenu(); }
+
+function placeMenu() {
+  camera.getWorldPosition(_head);
+  facing();
+  menuMesh.position.copy(_head).addScaledVector(_fwd, 1.2);
+  menuMesh.position.y = _head.y - 0.25;
+  menuMesh.lookAt(_head);
+}
+
+function toggleMenu(force) {
+  const open = force ?? !menuMesh.visible;
+  if (open) { placeMenu(); drawMenu(); }
+  menuMesh.visible = open;
+}
+
+/* ---------- Recording and GLTF export ---------- */
+const parts = {
+  torso: torsoMesh, head: headMesh,
+  upper_arm_L: arms.L.upper, forearm_L: arms.L.fore, hand_L: H.left.root,
+  upper_arm_R: arms.R.upper, forearm_R: arms.R.fore, hand_R: H.right.root,
+};
+
+function toggleRecord() {
+  if (!recording) {
+    recording = true;
+    frames = [];
+    recStart = performance.now();
+    setStatus('Recording…');
+  } else {
+    recording = false;
+    setStatus(`Take saved · ${frames.length} frames`);
+  }
+  drawMenu();
+}
+
+function captureFrame() {
+  const rec = { t: (performance.now() - recStart) / 1000 };
+  for (const n of PART_NAMES) {
+    const o = parts[n];
+    rec[n] = { p: o.position.clone(), q: o.quaternion.clone(), s: o.scale.clone() };
+  }
+  frames.push(rec);
+}
+
+function exportGltf() {
+  if (!frames.length) { setStatus('Nothing recorded yet'); return; }
+  setStatus('Building GLTF…');
+
+  const geoFor = {
+    torso: torsoGeo, head: headGeo,
+    upper_arm_L: limbGeo, forearm_L: limbGeo, hand_L: handExportGeo,
+    upper_arm_R: limbGeo, forearm_R: limbGeo, hand_R: handExportGeo,
+  };
+  const matFor = {
+    torso: MAT.fur, head: MAT.fur,
+    upper_arm_L: MAT.arm, forearm_L: MAT.arm, hand_L: MAT.hand,
+    upper_arm_R: MAT.arm, forearm_R: MAT.arm, hand_R: MAT.hand,
+  };
+
+  const exportScene = new THREE.Scene();
+  const times = frames.map(f => f.t);
+  const tracks = [];
+  for (const n of PART_NAMES) {
+    const m = new THREE.Mesh(geoFor[n], matFor[n]);
+    m.name = n;
+    exportScene.add(m);
+    const pv = [], qv = [], sv = [];
+    for (const f of frames) {
+      const k = f[n];
+      pv.push(k.p.x, k.p.y, k.p.z);
+      qv.push(k.q.x, k.q.y, k.q.z, k.q.w);
+      sv.push(k.s.x, k.s.y, k.s.z);
     }
+    tracks.push(new THREE.VectorKeyframeTrack(n + '.position', times, pv));
+    tracks.push(new THREE.QuaternionKeyframeTrack(n + '.quaternion', times, qv));
+    tracks.push(new THREE.VectorKeyframeTrack(n + '.scale', times, sv));
+  }
 
-    function lookAtQuat(from, to) {
-      const dir = new THREE.Vector3().subVectors(to, from).normalize();
-      if (dir.lengthSq() < 0.00001) return new THREE.Quaternion();
-      const quat = new THREE.Quaternion();
-      quat.setFromUnitVectors(new THREE.Vector3(0, -1, 0), dir);
-      return quat;
+  const clip = new THREE.AnimationClip('MonkeArena', times[times.length - 1] || 1, tracks);
+  new GLTFExporter().parse(exportScene, gltf => {
+    const blob = new Blob([JSON.stringify(gltf)], { type: 'model/gltf+json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `monke-arena-${Date.now()}.gltf`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    setStatus('GLTF downloaded');
+  }, err => {
+    console.error(err);
+    setStatus('Export failed (see console)');
+  }, { animations: [clip], binary: false });
+}
+
+/* gave up atp */
+renderer.xr.addEventListener('sessionstart', () => {
+  document.getElementById('hint').style.display = 'none';
+  for (const s of SIDES) H[s].hInit = false;
+  setStatus('Point and pull the trigger to use the menu');
+  toggleMenu(true);
+});
+renderer.xr.addEventListener('sessionend', () => {
+  document.getElementById('hint').style.display = '';
+  toggleMenu(false);
+});
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+const clock = new THREE.Clock();
+let elapsed = 0, uiTimer = 0;
+
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  elapsed += dt;
+  const inp = readInput();
+
+  if (inp.menuEdge) toggleMenu();
+  if (inp.recordEdge) toggleRecord();
+
+  const kf = 1 - Math.exp(-18 * dt);
+  for (const side of SIDES) {
+    const h = H[side];
+    for (let i = 0; i < 3; i++) h.curl[i] += (inp.fingers[side][i] - h.curl[i]) * kf;
+    applyFingers(h);
+  }
+
+  snapTurn(inp.turn);
+  rig.updateMatrixWorld(true);
+
+  const planted = updateHandTargets(dt, cfgVal('arm'), cfgVal('power'));
+
+  stepBody(dt, planted > 0, plantedDesired);
+
+  moveHands(dt);
+
+  updateBody(elapsed);
+  if (recording) captureFrame();
+
+  let hover = null;
+  if (menuMesh.visible) {
+    for (const s of ctrlSlots) {
+      const b = menuButtonFromController(s.ctrl);
+      if (b) { hover = b.id; break; }
     }
+  }
+  if (hover !== menuHover) { menuHover = hover; drawMenu(); }
+  uiTimer += dt;
+  if (uiTimer > 0.5) { uiTimer = 0; if (menuMesh.visible) drawMenu(); }
 
-    function fullFreeQuat(from, to) {
-      const dir = new THREE.Vector3().subVectors(to, from).normalize();
-      if (dir.lengthSq() < 0.00001) return new THREE.Quaternion();
-      const quat = new THREE.Quaternion();
-      const m = new THREE.Matrix4();
-      let up = new THREE.Vector3(0, 1, 0);
-      if (Math.abs(dir.y) > 0.95) up = new THREE.Vector3(0, 0, 1);
-      m.lookAt(new THREE.Vector3(0,0,0), dir, up);
-      quat.setFromRotationMatrix(m);
-      return quat;
-    }
+  renderer.render(scene, camera);
+});
 
-    // Strong ground clamp + simple collision with extra parts
-    function applyPhysics(pos) {
-      // Ground clamp (nothing below 0)
-      const bottoms = [
-        pos.upperL.y - 0.22, pos.foreL.y - 0.20, pos.handL.y - 0.07,
-        pos.upperR.y - 0.22, pos.foreR.y - 0.20, pos.handR.y - 0.07,
-        pos.torso.y - 0.42, pos.head.y - 0.19
-      ];
-      let lift = 0;
-      const lowest = Math.min(...bottoms);
-      if (lowest < 0) lift = -lowest;
-
-      Object.keys(pos).forEach(k => {
-        if (pos[k].isVector3) pos[k].y += lift;
-      });
-
-      // Simple collision: push body away from extra parts
-      const bodyPoints = [pos.torso, pos.head, pos.handL, pos.handR];
-      extraParts.forEach(p => {
-        const partPos = p.mesh.position;
-        const partScale = p.mesh.scale.x * 0.15; // approx radius
-        bodyPoints.forEach(bp => {
-          const dist = bp.distanceTo(partPos);
-          const minDist = 0.35 + partScale;
-          if (dist < minDist && dist > 0.01) {
-            const push = new THREE.Vector3().subVectors(bp, partPos).normalize().multiplyScalar(minDist - dist);
-            bp.add(push);
-            // also nudge the overall offset a bit
-            bodyOffset.add(push.multiplyScalar(0.3));
-          }
-        });
-      });
-    }
-
-    function computePose(landmarks) {
-      const lS = lmToPos(landmarks[11] || {x:0.42,y:0.40,z:0});
-      const rS = lmToPos(landmarks[12] || {x:0.58,y:0.40,z:0});
-      const lE = lmToPos(landmarks[13] || {x:0.38,y:0.55,z:0});
-      const rE = lmToPos(landmarks[14] || {x:0.62,y:0.55,z:0});
-      const lW = lmToPos(landmarks[15] || {x:0.32,y:0.70,z:0});
-      const rW = lmToPos(landmarks[16] || {x:0.68,y:0.70,z:0});
-      const nose = lmToPos(landmarks[0] || {x:0.50,y:0.28,z:0});
-
-      // ===== STRONG GTAG-style locomotion =====
-      // Use individual hand deltas so one-hand or two-hand movement both work
-      if (lastHandL && lastHandR) {
-        const dL = new THREE.Vector3().subVectors(lW, lastHandL);
-        const dR = new THREE.Vector3().subVectors(rW, lastHandR);
-
-        // Average horizontal movement of both hands drives the body
-        const avgX = (dL.x + dR.x) * 0.5;
-        const avgZ = (dL.z + dR.z) * 0.5;
-        const avgY = (dL.y + dR.y) * 0.5;
-
-        // Strong response so you actually move around the world
-        bodyVelocity.x += avgX * 1.8;
-        bodyVelocity.z += avgZ * 1.8;
-        bodyVelocity.y += avgY * 0.4;
-      }
-
-      lastHandL = lW.clone();
-      lastHandR = rW.clone();
-
-      // Damping (still keeps momentum like GTAG)
-      bodyVelocity.multiplyScalar(0.91);
-      bodyOffset.add(bodyVelocity.clone().multiplyScalar(0.025));
-
-      // Soft world limits (large play area)
-      bodyOffset.x = Math.max(-12, Math.min(12, bodyOffset.x));
-      bodyOffset.z = Math.max(-12, Math.min(12, bodyOffset.z));
-      bodyOffset.y = Math.max(-0.8, Math.min(3.0, bodyOffset.y));
-
-      // Body construction
-      const torsoPos = new THREE.Vector3().addVectors(lS, rS).multiplyScalar(0.5);
-      torsoPos.y -= 0.22;
-      torsoPos.add(bodyOffset);
-
-      const shoulderDir = new THREE.Vector3().subVectors(rS, lS).normalize();
-      const torsoYaw = Math.atan2(shoulderDir.x, shoulderDir.z);
-      const torsoQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, torsoYaw, 0));
-
-      const headPos = new THREE.Vector3().addVectors(lS, rS).multiplyScalar(0.5);
-      headPos.y += 0.35;
-      headPos.add(bodyOffset);
-
-      const noseRelY = nose.y - (torsoPos.y + 0.45);
-      const headPitch = Math.max(-0.5, Math.min(0.5, -noseRelY * 1.1));
-      const headQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(headPitch, torsoYaw, 0));
-
-      const upperLPos = new THREE.Vector3().addVectors(lS, lE).multiplyScalar(0.5).add(bodyOffset);
-      const upperLQuat = lookAtQuat(lS, lE);
-      const foreLPos = new THREE.Vector3().addVectors(lE, lW).multiplyScalar(0.5).add(bodyOffset);
-      const foreLQuat = lookAtQuat(lE, lW);
-      const handLPos = lW.clone().add(bodyOffset);
-      const handLQuat = fullFreeQuat(lE, lW);
-
-      const upperRPos = new THREE.Vector3().addVectors(rS, rE).multiplyScalar(0.5).add(bodyOffset);
-      const upperRQuat = lookAtQuat(rS, rE);
-      const foreRPos = new THREE.Vector3().addVectors(rE, rW).multiplyScalar(0.5).add(bodyOffset);
-      const foreRQuat = lookAtQuat(rE, rW);
-      const handRPos = rW.clone().add(bodyOffset);
-      const handRQuat = fullFreeQuat(rE, rW);
-
-      if (firstFrame) {
-        smooth.torsoPos.copy(torsoPos); smooth.headPos.copy(headPos);
-        smooth.upperLPos.copy(upperLPos); smooth.foreLPos.copy(foreLPos); smooth.handLPos.copy(handLPos);
-        smooth.upperRPos.copy(upperRPos); smooth.foreRPos.copy(foreRPos); smooth.handRPos.copy(handRPos);
-        smooth.torsoQuat.copy(torsoQuat); smooth.headQuat.copy(headQuat);
-        smooth.upperLQuat.copy(upperLQuat); smooth.foreLQuat.copy(foreLQuat); smooth.handLQuat.copy(handLQuat);
-        smooth.upperRQuat.copy(upperRQuat); smooth.foreRQuat.copy(foreRQuat); smooth.handRQuat.copy(handRQuat);
-        firstFrame = false;
-      } else {
-        smooth.torsoPos.lerp(torsoPos, POS_SMOOTH);
-        smooth.headPos.lerp(headPos, POS_SMOOTH);
-        smooth.upperLPos.lerp(upperLPos, POS_SMOOTH);
-        smooth.foreLPos.lerp(foreLPos, POS_SMOOTH);
-        smooth.handLPos.lerp(handLPos, POS_SMOOTH);
-        smooth.upperRPos.lerp(upperRPos, POS_SMOOTH);
-        smooth.foreRPos.lerp(foreRPos, POS_SMOOTH);
-        smooth.handRPos.lerp(handRPos, POS_SMOOTH);
-        smooth.torsoQuat.slerp(torsoQuat, QUAT_SMOOTH);
-        smooth.headQuat.slerp(headQuat, QUAT_SMOOTH);
-        smooth.upperLQuat.slerp(upperLQuat, QUAT_SMOOTH);
-        smooth.foreLQuat.slerp(foreLQuat, QUAT_SMOOTH);
-        smooth.handLQuat.slerp(handLQuat, QUAT_SMOOTH);
-        smooth.upperRQuat.slerp(upperRQuat, QUAT_SMOOTH);
-        smooth.foreRQuat.slerp(foreRQuat, QUAT_SMOOTH);
-        smooth.handRQuat.slerp(handRQuat, QUAT_SMOOTH);
-      }
-
-      const result = {
-        torso: { pos: smooth.torsoPos.clone(), quat: smooth.torsoQuat.clone() },
-        head:  { pos: smooth.headPos.clone(),  quat: smooth.headQuat.clone() },
-        upperL:{ pos: smooth.upperLPos.clone(), quat: smooth.upperLQuat.clone() },
-        foreL: { pos: smooth.foreLPos.clone(),  quat: smooth.foreLQuat.clone() },
-        handL: { pos: smooth.handLPos.clone(),  quat: smooth.handLQuat.clone() },
-        upperR:{ pos: smooth.upperRPos.clone(), quat: smooth.upperRQuat.clone() },
-        foreR: { pos: smooth.foreRPos.clone(),  quat: smooth.foreRQuat.clone() },
-        handR: { pos: smooth.handRPos.clone(),  quat: smooth.handRQuat.clone() }
-      };
-
-      const posOnly = {
-        torso: result.torso.pos, head: result.head.pos,
-        upperL: result.upperL.pos, foreL: result.foreL.pos, handL: result.handL.pos,
-        upperR: result.upperR.pos, foreR: result.foreR.pos, handR: result.handR.pos
-      };
-      applyPhysics(posOnly);
-
-      return result;
-    }
-
-    function updatePreview(pose) {
-      previewTorso.position.copy(pose.torso.pos);
-      previewTorso.quaternion.copy(pose.torso.quat);
-      previewHead.position.copy(pose.head.pos);
-      previewHead.quaternion.copy(pose.head.quat);
-      previewUpperL.position.copy(pose.upperL.pos);
-      previewUpperL.quaternion.copy(pose.upperL.quat);
-      previewForeL.position.copy(pose.foreL.pos);
-      previewForeL.quaternion.copy(pose.foreL.quat);
-      previewHandL.position.copy(pose.handL.pos);
-      previewHandL.quaternion.copy(pose.handL.quat);
-      previewUpperR.position.copy(pose.upperR.pos);
-      previewUpperR.quaternion.copy(pose.upperR.quat);
-      previewForeR.position.copy(pose.foreR.pos);
-      previewForeR.quaternion.copy(pose.foreR.quat);
-      previewHandR.position.copy(pose.handR.pos);
-      previewHandR.quaternion.copy(pose.handR.quat);
-      bodyMeshes.forEach(c => c.visible = true);
-
-      // Keep orbit target near the player
-      orbit.target.lerp(pose.torso.pos, 0.08);
-    }
-
-    downloadGltf.addEventListener('click', () => {
-      if (recordedFrames.length === 0) return;
-      statusEl.textContent = 'Building GLTF…';
-
-      const exportScene = new THREE.Scene();
-      const torso = makeCube(0.52, 0.85, 0.36, torsoMat.clone(), 'torso');
-      const head  = makeCube(0.38, 0.38, 0.38, headMat.clone(), 'head');
-      const upperL = makeCube(0.16, 0.45, 0.16, armMat.clone(), 'upper_arm.L');
-      const foreL  = makeCube(0.14, 0.40, 0.14, armMat.clone(), 'forearm.L');
-      const handL  = makeCube(0.20, 0.15, 0.11, handMat.clone(), 'hand.L');
-      const upperR = makeCube(0.16, 0.45, 0.16, armMat.clone(), 'upper_arm.R');
-      const foreR  = makeCube(0.14, 0.40, 0.14, armMat.clone(), 'forearm.R');
-      const handR  = makeCube(0.20, 0.15, 0.11, handMat.clone(), 'hand.R');
-
-      [torso, head, upperL, foreL, handL, upperR, foreR, handR].forEach(c => exportScene.add(c));
-      extraParts.forEach(p => {
-        const clone = p.mesh.clone();
-        exportScene.add(clone);
-      });
-
-      const times = [0, ...recordedFrames.map(f => f.t + 0.05)];
-      const duration = times[times.length - 1] || 1;
-
-      function makeTracks(name, getterPos, getterQuat) {
-        const posValues = [], quatValues = [];
-        const restPos = REST[name === 'torso' ? 'torso' : name === 'head' ? 'head' :
-                            name === 'upper_arm.L' ? 'upperL' : name === 'forearm.L' ? 'foreL' :
-                            name === 'hand.L' ? 'handL' : name === 'upper_arm.R' ? 'upperR' :
-                            name === 'forearm.R' ? 'foreR' : 'handR'];
-        posValues.push(restPos.x, restPos.y, restPos.z);
-        quatValues.push(0,0,0,1);
-        recordedFrames.forEach(frame => {
-          const pose = computePose(frame.landmarks);
-          const p = getterPos(pose);
-          const q = getterQuat(pose);
-          posValues.push(p.x, p.y, p.z);
-          quatValues.push(q.x, q.y, q.z, q.w);
-        });
-        return [
-          new THREE.VectorKeyframeTrack(name + '.position', times, posValues),
-          new THREE.QuaternionKeyframeTrack(name + '.quaternion', times, quatValues)
-        ];
-      }
-
-      const tracks = [
-        ...makeTracks('torso', p => p.torso.pos, p => p.torso.quat),
-        ...makeTracks('head',  p => p.head.pos,  p => p.head.quat),
-        ...makeTracks('upper_arm.L', p => p.upperL.pos, p => p.upperL.quat),
-        ...makeTracks('forearm.L',  p => p.foreL.pos,  p => p.foreL.quat),
-        ...makeTracks('hand.L',     p => p.handL.pos,  p => p.handL.quat),
-        ...makeTracks('upper_arm.R', p => p.upperR.pos, p => p.upperR.quat),
-        ...makeTracks('forearm.R',  p => p.foreR.pos,  p => p.foreR.quat),
-        ...makeTracks('hand.R',     p => p.handR.pos,  p => p.handR.quat)
-      ];
-
-      const clip = new THREE.AnimationClip('MonkeRotations', duration, tracks);
-      const exporter = new THREE.GLTFExporter();
-      exporter.parse(exportScene, (result) => {
-        const blob = new Blob([JSON.stringify(result)], { type: 'model/gltf+json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = `monke-gtag-${Date.now()}.gltf`; a.click();
-        URL.revokeObjectURL(url);
-        statusEl.textContent = 'GLTF downloaded!';
-      }, { animations: [clip], binary: false });
-    });
-
-    const videoElement = document.getElementById('video');
-    const pose = new Pose({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
-    });
-    pose.setOptions({
-      modelComplexity: 0,
-      smoothLandmarks: true,
-      enableSegmentation: false,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5
-    });
-
-    pose.onResults((results) => {
-      if (!results.poseLandmarks) {
-        bodyMeshes.forEach(c => c.visible = false);
-        return;
-      }
-
-      const p = computePose(results.poseLandmarks);
-      updatePreview(p);
-
-      if (recording) {
-        const t = (performance.now() - startTime) / 1000;
-        recordedFrames.push({
-          t,
-          landmarks: results.poseLandmarks.map(lm => ({ x:lm.x, y:lm.y, z:lm.z, visibility:lm.visibility }))
-        });
-        if (recordedFrames.length % 30 === 0) {
-          statusEl.textContent = `Recording… ${recordedFrames.length} frames`;
-        }
-      }
-    });
-
-    async function start() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'user', width: 480, height: 360 },
-          audio: false
-        });
-        videoElement.srcObject = stream;
-        await videoElement.play();
-
-        const cam = new Camera(videoElement, {
-          onFrame: async () => { await pose.send({ image: videoElement }); },
-          width: 480, height: 360
-        });
-        cam.start();
-        statusEl.textContent = 'Ready! Move with hands (GTAG style) • Select parts to transform';
-      } catch (err) {
-        statusEl.textContent = 'Camera error: ' + err.message;
-      }
-    }
-    start();
-
-    function animate() {
-      requestAnimationFrame(animate);
-      orbit.update();
-      renderer.render(scene, camera);
-    }
-    animate();
-
-    window.addEventListener('resize', () => {
-      camera.aspect = innerWidth / innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(innerWidth, innerHeight);
-    });
-  </script>
+drawMenu();
+</script>
 </body>
 </html>
